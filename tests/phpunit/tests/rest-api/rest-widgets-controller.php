@@ -898,6 +898,7 @@ class WP_Test_REST_Widgets_Controller extends WP_Test_REST_Controller_Testcase {
 		rest_get_server()->dispatch( $request );
 
 		$request = new WP_REST_Request( 'DELETE', '/wp/v2/widgets/text-1' );
+		$request->set_query_params( array( 'force' => true ) );
 		rest_do_request( $request );
 
 		$request  = new WP_REST_Request( 'GET', '/wp/v2/widgets' );
