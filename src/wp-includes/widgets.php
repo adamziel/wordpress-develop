@@ -1042,19 +1042,24 @@ function wp_get_sidebars_widgets( $deprecated = true ) {
  * @access private
  *
  * @global array $_wp_sidebars_widgets
- * @param array $sidebars_widgets Sidebar widgets and their settings.
+ * @global array $sidebars_widgets
+ * @param array $new_sidebars_widgets Sidebar widgets and their settings.
  */
-function wp_set_sidebars_widgets( $sidebars_widgets ) {
-	global $_wp_sidebars_widgets;
+function wp_set_sidebars_widgets( $new_sidebars_widgets ) {
+	global $_wp_sidebars_widgets, $sidebars_widgets;
 
 	// Clear cached value used in wp_get_sidebars_widgets().
 	$_wp_sidebars_widgets = null;
 
-	if ( ! isset( $sidebars_widgets['array_version'] ) ) {
-		$sidebars_widgets['array_version'] = 3;
+	if ( ! isset( $new_sidebars_widgets['array_version'] ) ) {
+		$new_sidebars_widgets['array_version'] = 3;
 	}
 
-	update_option( 'sidebars_widgets', $sidebars_widgets );
+	update_option( 'sidebars_widgets', $new_sidebars_widgets );
+
+	// Refresh the $sidebars_widgets global
+	$sidebars_widgets = wp_get_sidebars_widgets();
+	retrieve_widgets( true );
 }
 
 /**
