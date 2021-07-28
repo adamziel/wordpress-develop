@@ -1542,7 +1542,7 @@ class WP_Test_REST_Widgets_Controller extends WP_Test_REST_Controller_Testcase {
 		$this->assertArrayHasKey( 'instance', $properties );
 		$this->assertArrayHasKey( 'form_data', $properties );
 	}
-	
+
 	/**
 	 * Helper to remove links key.
 	 *
