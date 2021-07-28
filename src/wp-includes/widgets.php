@@ -1060,8 +1060,8 @@ function wp_set_sidebars_widgets( $new_sidebars_widgets, $call_retrieve_widgets 
 
 	// Refresh the $sidebars_widgets global
 	if ( $call_retrieve_widgets ) {
-		$sidebars_widgets = wp_get_sidebars_widgets();
-		retrieve_widgets( true );
+//		$sidebars_widgets = wp_get_sidebars_widgets();
+//		retrieve_widgets( true );
 	}
 }
 
