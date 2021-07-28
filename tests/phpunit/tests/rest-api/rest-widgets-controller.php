@@ -904,35 +904,17 @@ class WP_Test_REST_Widgets_Controller extends WP_Test_REST_Controller_Testcase {
 		$response = rest_get_server()->dispatch( $request );
 		$data     = $response->get_data();
 		$data     = $this->remove_links( $data );
-		$this->assertSameSets(
+
+		$this->assertCount( 1, $data );
+		$this->assertSame( 'text-2', $data[0]['id'] );
+		$this->assertSame( 'sidebar-1', $data[0]['sidebar'] );
+		$this->assertSameSetsWithIndex(
 			array(
-				array(
-					'id'       => 'block-1',
-					'id_base'  => 'block',
-					'sidebar'  => 'sidebar-1',
-					'rendered' => '<p>Block test</p>',
-					'instance' => array(
-						'encoded' => base64_encode(
-							serialize(
-								array(
-									'content' => 'Updated text test',
-								)
-							)
-						),
-						'hash'    => wp_hash(
-							serialize(
-								array(
-									'content' => 'Updated text test',
-								)
-							)
-						),
-						'raw'     => array(
-							'content' => 'Updated text test',
-						),
-					),
-				),
+				'text'   => 'Updated text test',
+				'title'  => '',
+				'filter' => false,
 			),
-			$data
+			$data[0]['instance']['raw']
 		);
 	}
 
