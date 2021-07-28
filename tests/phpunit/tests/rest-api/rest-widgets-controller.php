@@ -856,6 +856,89 @@ class WP_Test_REST_Widgets_Controller extends WP_Test_REST_Controller_Testcase {
 	/**
 	 * @ticket 41683
 	 */
+	public function test_create_and_delete() {
+		$this->setup_widget(
+			'text',
+			1,
+			array(
+				'text' => 'Custom text test',
+			)
+		);
+		$this->setup_sidebar(
+			'sidebar-1',
+			array(
+				'name' => 'Test sidebar',
+			),
+			array( 'text-1' )
+		);
+
+		$request = new WP_REST_Request( 'POST', '/wp/v2/widgets' );
+		$request->set_body_params(
+			array(
+				'id_base'  => 'text',
+				'sidebar'  => 'sidebar-1',
+				'instance' => array(
+					'encoded' => base64_encode(
+						serialize(
+							array(
+								'text' => 'Updated text test',
+							)
+						)
+					),
+					'hash'    => wp_hash(
+						serialize(
+							array(
+								'text' => 'Updated text test',
+							)
+						)
+					),
+				),
+			)
+		);
+		rest_get_server()->dispatch( $request );
+
+		$request = new WP_REST_Request( 'DELETE', '/wp/v2/widgets/text-1' );
+		rest_do_request( $request );
+
+		$request  = new WP_REST_Request( 'GET', '/wp/v2/widgets' );
+		$response = rest_get_server()->dispatch( $request );
+		$data     = $response->get_data();
+		$data     = $this->remove_links( $data );
+		$this->assertSameSets(
+			array(
+				array(
+					'id'       => 'block-1',
+					'id_base'  => 'block',
+					'sidebar'  => 'sidebar-1',
+					'rendered' => '<p>Block test</p>',
+					'instance' => array(
+						'encoded' => base64_encode(
+							serialize(
+								array(
+									'content' => 'Updated text test',
+								)
+							)
+						),
+						'hash'    => wp_hash(
+							serialize(
+								array(
+									'content' => 'Updated text test',
+								)
+							)
+						),
+						'raw'     => array(
+							'content' => 'Updated text test',
+						),
+					),
+				),
+			),
+			$data
+		);
+	}
+
+	/**
+	 * @ticket 41683
+	 */
 	public function test_update_item() {
 		$this->setup_widget(
 			'text',
@@ -1459,6 +1542,7 @@ class WP_Test_REST_Widgets_Controller extends WP_Test_REST_Controller_Testcase {
 		$this->assertArrayHasKey( 'instance', $properties );
 		$this->assertArrayHasKey( 'form_data', $properties );
 	}
+
 
 	/**
 	 * Helper to remove links key.
