@@ -1044,8 +1044,9 @@ function wp_get_sidebars_widgets( $deprecated = true ) {
  * @global array $_wp_sidebars_widgets
  * @global array $sidebars_widgets
  * @param array $new_sidebars_widgets Sidebar widgets and their settings.
+ * @param boolean $call_retrieve_widgets Should call retrieve_widgets?
  */
-function wp_set_sidebars_widgets( $new_sidebars_widgets ) {
+function wp_set_sidebars_widgets( $new_sidebars_widgets, $call_retrieve_widgets = true ) {
 	global $_wp_sidebars_widgets, $sidebars_widgets;
 
 	// Clear cached value used in wp_get_sidebars_widgets().
@@ -1058,8 +1059,10 @@ function wp_set_sidebars_widgets( $new_sidebars_widgets ) {
 	update_option( 'sidebars_widgets', $new_sidebars_widgets );
 
 	// Refresh the $sidebars_widgets global
-	$sidebars_widgets = wp_get_sidebars_widgets();
-	retrieve_widgets( true );
+	if ( $call_retrieve_widgets ) {
+		$sidebars_widgets = wp_get_sidebars_widgets();
+		retrieve_widgets( true );
+	}
 }
 
 /**
@@ -1315,7 +1318,7 @@ function retrieve_widgets( $theme_changed = false ) {
 	$sidebars_widgets['wp_inactive_widgets'] = array_merge( $lost_widgets, (array) $sidebars_widgets['wp_inactive_widgets'] );
 
 	if ( 'customize' !== $theme_changed ) {
-		wp_set_sidebars_widgets( $sidebars_widgets );
+		wp_set_sidebars_widgets( $sidebars_widgets, false );
 	}
 
 	return $sidebars_widgets;
