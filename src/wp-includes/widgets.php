@@ -358,6 +358,8 @@ function is_registered_sidebar( $sidebar_id ) {
  * @since 5.3.0 Formalized the existing and already documented `...$params` parameter
  *              by adding it to the function signature.
  * @since 5.8.0 Added show_instance_in_rest option.
+ * @deprecated 5.8.1 Use wp_register_widget_control()
+ * @see wp_register_widget_control()
  *
  * @global array $wp_registered_widgets            Uses stored registered widgets.
  * @global array $wp_registered_widget_controls    Stores the registered widget controls (options).
@@ -381,6 +383,7 @@ function is_registered_sidebar( $sidebar_id ) {
  */
 function wp_register_sidebar_widget( $id, $name, $output_callback, $options = array(), ...$params ) {
 	global $wp_registered_widgets, $wp_registered_widget_controls, $wp_registered_widget_updates, $_wp_deprecated_widgets_callbacks;
+	_deprecated_function( __FUNCTION__, '5.8.1', 'wp_register_widget_control()' );
 
 	$id = strtolower( $id );
 
