@@ -1043,8 +1043,10 @@ function wp_get_sidebars_widgets( $deprecated = true ) {
  *
  * @global array $_wp_sidebars_widgets
  * @global array $sidebars_widgets
- * @param array $new_sidebars_widgets Sidebar widgets and their settings.
- * @param boolean $refresh_global_sidebars_widgets Should update the global $sidebars_widgets variable?
+ *
+ * @param array   $new_sidebars_widgets            Sidebar widgets and their settings.
+ * @param boolean $refresh_global_sidebars_widgets Optional. Whether to update $sidebars_widgets
+ *                                                 global. Default true.
  */
 function wp_set_sidebars_widgets( $new_sidebars_widgets, $refresh_global_sidebars_widgets = true ) {
 	global $_wp_sidebars_widgets, $sidebars_widgets;
@@ -1061,7 +1063,7 @@ function wp_set_sidebars_widgets( $new_sidebars_widgets, $refresh_global_sidebar
 	// Refresh the $sidebars_widgets global
 	if ( $refresh_global_sidebars_widgets ) {
 		$sidebars_widgets = wp_get_sidebars_widgets();
-		retrieve_widgets( true );
+		sync_registered_widgets( true );
 	}
 }
 
@@ -1318,8 +1320,10 @@ function retrieve_widgets( $theme_changed = false ) {
 	$sidebars_widgets['wp_inactive_widgets'] = array_merge( $lost_widgets, (array) $sidebars_widgets['wp_inactive_widgets'] );
 
 	if ( 'customize' !== $theme_changed ) {
-		// The second parameter is false to avoid recursion: refreshing the global
-		// $sidebars_widgets entails calling retrieve_widgets()
+		/*
+		 * The second parameter is false to avoid recursion: refreshing the global
+		 * $sidebars_widgets entails calling retrieve_widgets().
+		 */
 		wp_set_sidebars_widgets( $sidebars_widgets, false );
 	}
 
