@@ -109,7 +109,7 @@ class WP_REST_Widgets_Controller extends WP_REST_Controller {
 	 * @return WP_REST_Response|WP_Error Response object on success, or WP_Error object on failure.
 	 */
 	public function get_items( $request ) {
-		retrieve_widgets();
+		sync_registered_widgets();
 
 		$prepared = array();
 
@@ -151,7 +151,7 @@ class WP_REST_Widgets_Controller extends WP_REST_Controller {
 	 * @return WP_REST_Response|WP_Error Response object on success, or WP_Error object on failure.
 	 */
 	public function get_item( $request ) {
-		retrieve_widgets();
+		sync_registered_widgets();
 
 		$widget_id  = $request['id'];
 		$sidebar_id = wp_find_widgets_sidebar( $widget_id );
@@ -236,7 +236,7 @@ class WP_REST_Widgets_Controller extends WP_REST_Controller {
 	public function update_item( $request ) {
 		global $wp_widget_factory;
 
-		retrieve_widgets();
+		sync_registered_widgets();
 
 		$widget_id  = $request['id'];
 		$sidebar_id = wp_find_widgets_sidebar( $widget_id );
@@ -300,7 +300,7 @@ class WP_REST_Widgets_Controller extends WP_REST_Controller {
 	public function delete_item( $request ) {
 		global $wp_widget_factory, $wp_registered_widget_updates;
 
-		retrieve_widgets();
+		sync_registered_widgets();
 
 		$widget_id  = $request['id'];
 		$sidebar_id = wp_find_widgets_sidebar( $widget_id );
@@ -768,7 +768,7 @@ class WP_REST_Widgets_Controller extends WP_REST_Controller {
 					'type'        => 'string',
 					'context'     => array(),
 					'arg_options' => array(
-						'sanitize_callback' => function( $string ) {
+						'sanitize_callback' => static function( $string ) {
 							$array = array();
 							wp_parse_str( $string, $array );
 							return $array;

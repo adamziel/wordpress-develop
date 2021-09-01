@@ -3,7 +3,7 @@
  * @group plugins
  * @group admin
  */
-class Tests_Admin_includesPlugin extends WP_UnitTestCase {
+class Tests_Admin_IncludesPlugin extends WP_UnitTestCase {
 	public static function wpSetUpBeforeClass( $factory ) {
 		self::_back_up_mu_plugins();
 	}
@@ -403,7 +403,7 @@ class Tests_Admin_includesPlugin extends WP_UnitTestCase {
 	 * @covers ::get_mu_plugins
 	 */
 	public function test_get_mu_plugins_when_mu_plugins_directory_does_not_exist() {
-		$this->assertFileNotExists( WPMU_PLUGIN_DIR );
+		$this->assertFileDoesNotExist( WPMU_PLUGIN_DIR );
 		$this->assertSame( array(), get_mu_plugins() );
 	}
 
