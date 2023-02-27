@@ -19,6 +19,19 @@ function dbg( $message, $indent = 0 ) {
 	}
 }
 
+class WP_HTML_Tag_Token {
+
+	public $tag;
+
+	public $bookmark;
+
+	public function __construct( $tag, $bookmark = null ) {
+		$this->tag = $tag;
+		$this->bookmark = $bookmark;
+	}
+
+}
+
 class WP_HTML_Token {
 	const MARKER = 'MARKER';
 	const TAG = 'TAG';
