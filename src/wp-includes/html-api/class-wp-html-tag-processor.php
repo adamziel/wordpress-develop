@@ -413,7 +413,7 @@ class WP_HTML_Tag_Processor {
 	 *
 	 * @var bool
 	 */
-	private $is_closing_tag;
+	protected $is_closing_tag;
 
 	/**
 	 * Lazily-built index of attributes found within an HTML tag, keyed by the attribute name.
