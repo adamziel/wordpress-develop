@@ -838,159 +838,14 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 				return;
 			}
 
-			dbg("AAA: Furthest block = {$furthest_block->token->tag}", 2);
-
-			// Let common ancestor be the element immediately above formatting element
-			// in the stack of open elements.
-			$formatting_elem_stack_index = array_search( $formatting_element, $this->open_elements, true );
-			$common_ancestor             = $this->open_elements[ $formatting_elem_stack_index - 1 ];
-
-			dbg("AAA: Common ancestor = {$common_ancestor->token->tag}", 2);
-
-			$this->print_open_elements('AAA: Open elements: ', 2);
-			$this->print_active_formatting_elements('AAA: Formatting elements: ', 2);
-
-			// Let a bookmark note the position of formatting element in the list of
-			// active formatting elements relative to the elements on either side of it
-			// in the list.
-			$bookmark = $formatting_element_idx;
-
-			// Let node and last node be furthest block.
-			$node                     = $last_node = $furthest_block;
-			$node_open_elements_index = array_search( $node, $this->open_elements, true );
-
-			$prev_open_element_index = false;
-			$inner_loop_counter      = 0;
-			while ( true ) {
-				$inner_loop_counter++;
-
-				/**
-				 * Let node be the element immediately above node in the stack of open elements,
-				 * or if node is no longer in the stack of open elements (e.g. because it got
-				 * removed by this algorithm), the element that was immediately above node in
-				 * the stack of open elements before node was removed.
-				 */
-				$node_open_elements_index = array_search( $node, $this->open_elements, true );
-				if ( false === $node_open_elements_index ) {
-					if ( false === $prev_open_element_index ) {
-						throw new Exception( 'Unexpected error in AAA algorithm – cannot find node.' );
-					}
-					$node_open_elements_index = $prev_open_element_index;
-				}
-				--$node_open_elements_index;
-				if( $node_open_elements_index < 0 ) {
-					throw new Exception( 'Unexpected error in AAA algorithm – node is not in the stack of open elements.' );
-				}
-				$node                     = $this->open_elements[ $node_open_elements_index ];
-				$prev_open_element_index = $node_open_elements_index;
-
-				// If node is formatting element, then break.
-				if ( $node === $formatting_element ) {
-					dbg("AAA: Inner loop break – node is formatting element", 3);
-					break;
-				}
-
-				/*
-				 * If inner loop counter is greater than 3 and node is in the list
-				 * of active formatting elements, then remove node from the list of
-				 * active formatting elements.
-				 */
-				if ( $inner_loop_counter > 3 && in_array( $node, $this->active_formatting_elements, true ) ) {
-					$node_formatting_idx = array_search( $node, $this->active_formatting_elements, true );
-					array_splice( $this->active_formatting_elements, $node_formatting_idx, 1 );
-				}
-
-				/*
-				 * If node is not in the list of active formatting elements, then remove
-				 * node from the stack of open elements and continue.
-				 */
-				if ( ! in_array( $node, $this->active_formatting_elements, true ) ) {
-					dbg("AAA: Inner loop – removing node from the stack of open elements", 3);
-					array_splice( $this->open_elements, $node_open_elements_index, 1 );
-				}
-
-				/*
-				 * Create an element for the token for which the element node was created,
-				 * in the HTML namespace, with common ancestor as the intended parent.
-				 */
-				$new_node            = $this->create_element_for_token( $node->token );
-
-				/*
-				 * Replace the entry for node in the list of active formatting elements with an entry
-				 * for the new element.
-				 */
-				$node_formatting_idx = array_search( $node, $this->active_formatting_elements, true );
-				$this->active_formatting_elements[ $node_formatting_idx ] = $new_node;
-
-				/*
-				 * Replace the entry for node in the stack of open elements with an entry for
-				 * the new element.
-				 */
-				$idx                         = array_search( $node, $this->open_elements, true );
-				$this->open_elements[ $idx ] = $new_node;
-
-				/*
-				 * Let node be the new element.
-				 */
-				$node = $new_node;
-
-				/*
-				 * If last node is furthest block, then move the aforementioned bookmark to be
-				 * immediately after the new node in the list of active formatting elements.
-				 */
-				if ( $last_node === $furthest_block ) {
-					$bookmark = $node_formatting_idx + 1;
-				}
-
-				// Append last node to node.
-				dbg("AAA: Appending {$last_node->token->tag} to {$node->token->tag}", 3);
-				$node->append_child( $last_node );
-
-				// Set last node to node.
-				$last_node = $node;
-			}
-
-			// $this->reconstructed_html .= '<AA>';
-			// $this->reconstructed_html .= '<'.$common_ancestor->token->tag.'>';
-			// $this->reconstructed_html .= '<'.$last_node->token->tag.'>';
-
-			// Insert whatever last node ended up being in the previous step at the appropriate place
-			// for inserting a node, but using common ancestor as the override target.
-			$this->insert_node( $last_node, $common_ancestor );
-
-			// Create an element for the token for which formatting element was created, in the HTML
-			// namespace, with furthest block as the intended parent.
-			$new_element = $this->create_element_for_token( $formatting_element->token );
-
-			// Take all of the child nodes of furthest block and append them to the element created in
-			// the last step.
-			foreach ($furthest_block->children as $child) {
-				$new_element->append_child( $child );
-			}
-
-			// Append that new element to furthest block.
-			$furthest_block->append_child( $new_element );
-
-			// Remove formatting element from the list of active formatting elements
-			$idx = array_search( $formatting_element, $this->active_formatting_elements, true );
-			array_splice( $this->active_formatting_elements, $idx, 1 );
-	
-			// Insert the new element into the list of active formatting elements at the 
-			// position of the aforementioned bookmark.
-			array_splice( $this->active_formatting_elements, $bookmark, 0, array( $new_element ) );
-
-			// Remove formatting element from the stack of open elements
-			$idx = array_search( $formatting_element, $this->open_elements, true );
-			array_splice( $this->open_elements, $idx, 1 );
-			
-			// Insert the new element into the stack of open elements immediately below the 
-			// position of furthest block in that stack.
-			$idx = array_search( $furthest_block, $this->open_elements, true );
-			array_splice( $this->open_elements, $idx + 1, 0, array( $new_element ) );
+			// We didn't bale out so far, but the algorithm is not implemented.
+			// Let's error out.
+			break;
 		}
+		throw new Exception('Adoption Agency Algorithm not supported.');
 	}
 
-	private function insert_element( WP_HTML_Token $token, $override_target = null ) {
+	private function insert_element( WP_HTML_Token $token ) {
 		// Text API:
 		$this->reconstructed_html .= '<'.$token->tag.'>';
 
@@ -999,24 +854,16 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 		// Create element for a token
 		// Skip reset algorithm for now
 		// Skip form-association for now
-		$node = $this->create_element_for_token($token);
-		$this->insert_node($node, $override_target);
-		array_push($this->open_elements, $node);
-		return $node;
-	}
-
-	private function insert_node( WP_HTML_Node $node, $override_target = null ) {
-		$target = $override_target ?: $this->current_node();
 		/**
 		 * Appropriate place for inserting a node is always the end of the
 		 * target's children thanks to the assumptions this parser makes.
 		 */
-		$target->append_child($node);
-		dbg("Inserted element: {$node->token->tag} to parent {$target->token->tag}", 2);
-	}
+		$node = new WP_HTML_Node($token);
+		$this->current_node()->append_child($node);
+		dbg("Inserted element: {$node->token->tag} to parent {$this->current_node()->token->tag}", 2);
 
-	private function create_element_for_token( WP_HTML_Token $token ) {
-		return new WP_HTML_Node($token);
+		array_push($this->open_elements, $node);
+		return $node;
 	}
 
 	private function insert_text( WP_HTML_Token $token ) {
@@ -1497,8 +1344,8 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 
 // die();
 
-// $p = new WP_HTML_Processor( '<p>1<b>2<i>3</b>4</i>5</p>' );
-// $p->parse();
+$p = new WP_HTML_Processor( '<p>1<b>2<i>3</b>4</i>5</p>' );
+$p->parse();
 /*
 Outputs:
 	p
@@ -1511,7 +1358,9 @@ Outputs:
 	│  └─ #text: 4
 	└─ #text: 5
 */
-// die();
+echo "\n\n";
+echo $p->reconstructed_html;
+die();
 
 // $p = new WP_HTML_Processor( '<div>1<span>2</div>3</span>4' );
 // $p->parse();
