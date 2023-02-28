@@ -787,6 +787,7 @@ class WP_HTML_Tag_Processor {
 				return false;
 			}
 
+			$closer_potentially_starts_at = $at;
 			$at += 2;
 
 			/*
@@ -830,7 +831,7 @@ class WP_HTML_Tag_Processor {
 			}
 
 			if ( '>' === $html[ $at ] || '/' === $html[ $at ] ) {
-				++$this->bytes_already_parsed;
+				$this->bytes_already_parsed = $closer_potentially_starts_at;
 				return true;
 			}
 		}
@@ -899,6 +900,7 @@ class WP_HTML_Tag_Processor {
 			}
 
 			if ( '/' === $html[ $at ] ) {
+				$closer_potentially_starts_at = $at - 1;
 				$is_closing = true;
 				++$at;
 			} else {
@@ -960,7 +962,7 @@ class WP_HTML_Tag_Processor {
 				}
 
 				if ( '>' === $html[ $this->bytes_already_parsed ] ) {
-					++$this->bytes_already_parsed;
+					$this->bytes_already_parsed = $closer_potentially_starts_at;
 					return true;
 				}
 			}
