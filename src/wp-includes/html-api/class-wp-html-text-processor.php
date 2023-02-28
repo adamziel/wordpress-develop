@@ -77,9 +77,6 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 				// die();
 			}
 		}
-		while ( count($this->open_elements) > 1 ) {
-			$this->pop_open_element();
-		}
 
 		echo("\n");
 		echo("\$this->HTML after main loop:\n");
@@ -92,7 +89,8 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 	}
 
 	public function depth() {
-		return count($this->open_elements);
+		// -1 because the root HTML element is not counted
+		return count($this->open_elements) - 1;
 	}
 
 	public function first_child()
@@ -191,6 +189,17 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 			$this->current_token = null;
 			$this->current_token_start = strlen($this->html);
 			$this->current_token_end = strlen($this->html);
+
+			// Some tags were left open, let's close and process them.
+			if(count($this->open_elements) > 1)
+			{
+				while ( count($this->open_elements) > 1 ) {
+					$this->pop_open_element();
+				}
+				// Flush lexical updates
+				$this->get_updated_html();
+			}
+
 			return false;
 		}
 
@@ -1245,7 +1254,12 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 }
 
 
+$p = new WP_HTML_Processor( '<p>1<script>HTML Standard</script>3<b>4' );
+
 $p = new WP_HTML_Processor( '<ul><li><b>1</b><li>2<li>3<li>Lorem<b>Ipsum<li>Dolor</ul></ul></ul><span></ul>Sit<span>Sit<span><div>Amet' );
+echo $p->parse();
+
+die();
 $p->first_child();
 var_dump($p->get_tag());
 $p->first_child();
@@ -1273,8 +1287,6 @@ $p = new WP_HTML_Processor( '<p>1<table><tbody><tr><td>HTML</td><td>Standard</ta
 echo $p->parse();
 die();
 
-$p = new WP_HTML_Processor( '<p>1<script>HTML Standard</script>3<b>4</b>5</p>' );
-$p->parse();
 
 $p = new WP_HTML_Processor( '<p>1<b>2<i>3</b>4</i>5</p>' );
 $p->parse();
