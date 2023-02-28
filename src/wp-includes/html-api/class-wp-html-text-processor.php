@@ -66,7 +66,7 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 		// echo($this->html);
 		echo("\n");
 		$i = 0;
-		while ($this->next_element_node()) {
+		while ($this->process_next_tag_token()) {
 			// ... twiddle thumbs ...
 			if(++$i % 10000 === 0)
 			{
@@ -91,7 +91,97 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 		return $this->get_updated_html();
 	}
 
-	public function next_element_node() {
+	public function depth() {
+		return count($this->open_elements);
+	}
+
+	public function first_child()
+	{
+		return $this->nth_child(1);
+	}
+
+	public function nth_child($n=1) {
+		if ( 0 === $this->bytes_already_parsed ){
+			return $this->next_node();
+		}
+		if ( ! $this->set_bookmark('internal_nth_child') ) {
+			return false;
+		}
+		$depth = $this->depth();
+		$matched = 0;
+		try {
+			do {
+				if (!$this->next_node()) {
+					return false;
+				}
+
+				if ($this->is_tag_closer()) {
+					continue;
+				}
+
+				if ($this->depth() <= $depth) {
+					$this->seek('internal_nth_child');
+					return false;
+				}
+
+				++$matched;
+			} while ($matched < $n);
+			return true;
+		} finally {
+			$this->release_bookmark('internal_nth_child');
+		}
+	}
+
+	public function next_sibling()
+	{
+		return $this->nth_sibling(1);
+	}
+
+	public function nth_sibling($n = 1)
+	{
+		if ( 0 === $this->bytes_already_parsed ){
+			return $this->next_node();
+		}
+		if ( ! $this->set_bookmark('internal_nth_sibling') ) {
+			return false;
+		}
+		$depth = $this->depth();
+		$matched = 0;
+		try {
+			do {
+				if (!$this->next_node()) {
+					return false;
+				}
+
+				if ($this->is_tag_closer()) {
+					return false;
+				}
+
+				if ($this->depth() < $depth) {
+					$this->seek('internal_nth_sibling');
+					return false;
+				} else if ($this->depth() > $depth) {
+					continue;
+				}
+
+				++$matched;
+			} while ($matched < $n);
+			return true;
+		} finally {
+			$this->release_bookmark('internal_nth_sibling');
+		}
+	}
+
+	private function next_node() {
+		while ($this->process_next_tag_token()) {
+			if (!$this->is_tag_closer()) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	private function process_next_tag_token() {
 		if ( ! $this->next_tag_token() ) {
 			return false;
 		}
@@ -738,7 +828,7 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 		return $popped;
 	}
 
-	public function drop_current_tag_token() {
+	private function drop_current_tag_token() {
 		$this->add_lexical_update(
 			new WP_HTML_Text_Replacement(
 				$this->current_token_start,
@@ -1162,6 +1252,18 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 	}
 
 }
+
+
+$p = new WP_HTML_Processor( '<ul><li><b>1</b><li>2<li>3<li>Lorem<b>Ipsum<li>Dolor</ul></ul></ul><span></ul>Sit<span>Sit<span><div>Amet' );
+$p->first_child();
+var_dump($p->get_tag());
+$p->first_child();
+var_dump($p->get_tag());
+$p->next_sibling();
+var_dump($p->get_tag());
+$p->next_sibling();
+var_dump($p->get_tag());
+die();
 
 $dir = realpath( __DIR__ . '/../../../index.html' );
 
