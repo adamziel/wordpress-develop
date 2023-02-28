@@ -80,35 +80,36 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 
 	public function parse() {
 		echo("HTML before main loop:\n");
-		// echo($this->html);
+		echo($this->html);
 		echo("\n");
 		while ($this->next_node()) {
 			// ... twiddle thumbs ...
 		}
-
 		while ( count($this->open_elements) > 1 ) {
 			$this->pop_open_element();
 		}
 
 		echo("\n");
 		echo("Reconstructed HTML after main loop:\n");
-		// echo($this->reconstructed_html.'');
+		echo($this->reconstructed_html.'');
 		echo "\n\n";
 		echo("\$this->HTML after main loop:\n");
-		// echo($this->get_updated_html().'');
+		echo($this->get_updated_html().'');
 		echo "\n\n";
 
 		echo "Mem peak usage:" . (memory_get_peak_usage(true) / 1024 / 1024) . "MB\n";
 		echo("\n---------------\n\n");
 	}
 
-	public function ignore_current_tag_token() {
+	public function drop_current_tag_token() {
 		// @TODO: remove the current tag from $this->html instead of
 		//        not appending it to $this->reconstructed_html
-		$this->lexical_updates[] = new WP_HTML_Text_Replacement(
-			$this->current_token_start,
-			$this->current_token_end,
-			''
+		$this->add_lexical_update(
+			new WP_HTML_Text_Replacement(
+				$this->current_token_start,
+				$this->current_token_end,
+				''
+			)
 		);
 		return true;
 	}
@@ -119,7 +120,6 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 	public function next_node() {
 		$text_start = $this->tag_ends_at + 1;
 		$this->current_token_start = $text_start;
-		
 		if ( $this->next_tag( array( 'tag_closers' => 'visit' ) ) ) {
 			$bookmark = '__internal_' . ( $this->element_bookmark_idx++ );
 			$this->set_bookmark($bookmark);
@@ -437,7 +437,7 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 				case 'UL':
 					if ( ! $this->is_element_in_scope( $token->tag ) ) {
 						$this->parse_error();
-						return $this->ignore_current_tag_token();
+						return $this->drop_current_tag_token();
 					}
 					$this->generate_implied_end_tags();
 					$this->pop_until_node_or_tag( $token->tag, false );
@@ -462,7 +462,7 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 				case 'LI':
 					if ( ! $this->is_element_in_list_item_scope( 'LI' ) ) {
 						$this->parse_error();
-						return $this->ignore_current_tag_token();
+						return $this->drop_current_tag_token();
 					}
 					$this->generate_implied_end_tags();
 					$this->pop_until_node_or_tag( 'LI', false );
@@ -471,7 +471,7 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 				case 'DT':
 					if ( ! $this->is_element_in_scope( $token->tag ) ) {
 						$this->parse_error();
-						return $this->ignore_current_tag_token();
+						return $this->drop_current_tag_token();
 					}
 					$this->generate_implied_end_tags();
 					$this->pop_until_node_or_tag( $token->tag, false );
@@ -484,7 +484,7 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 				case 'H6':
 					if ( ! $this->is_element_in_scope( array( 'H1', 'H2', 'H3', 'H4', 'H5', 'H6' ) ) ) {
 						$this->parse_error();
-						return $this->ignore_current_tag_token();
+						return $this->drop_current_tag_token();
 					}
 					$this->generate_implied_end_tags();
 					$this->pop_until_node_or_tag( array( 'H1', 'H2', 'H3', 'H4', 'H5', 'H6' ), false );
@@ -511,7 +511,7 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 				case 'OBJECT':
 					if ( ! $this->is_element_in_scope( $token->tag ) ) {
 						$this->parse_error();
-						return $this->ignore_current_tag_token();
+						return $this->drop_current_tag_token();
 					}
 					$this->generate_implied_end_tags();
 					if ( $this->current_node()->tag !== $token->tag ) {
@@ -523,28 +523,37 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 				case 'BR':
 					// This should never happen since Tag_Processor corrects that
 				default:
-					$i = count( $this->open_elements ) - 1;
-					while ( true ) {
-						$node = $this->open_elements[ $i ];
-						if ( $node->tag === $token->tag ) {
-							$this->generate_implied_end_tags(
-								array(
-									'except_for' => array( $token->tag ),
-								)
-							);
-							$this->pop_until_node_or_tag( $node );
-							break;
-						} elseif ( $this->is_special_element( $node->tag ) ) {
-							$this->parse_error();
-							return $this->ignore_current_tag_token();
-						} else {
-							--$i;
-						}
-					}
+					$this->process_any_other_end_tag( $token );
 					break;
 			}
 		}
 		return $token;
+	}
+
+	private function process_any_other_end_tag( WP_HTML_Tag_Token $token ) {
+		$node = $this->current_node();
+		$tag = $token->tag;
+		$i = count( $this->open_elements ) - 1;
+		while ( true ) {
+			if ( $node->tag === $tag ) {
+				$this->generate_implied_end_tags(
+					array(
+						'except_for' => array( $tag ),
+					)
+				);
+				if ( $node->tag !== $tag ) {
+					$this->parse_error();
+				}
+				$this->pop_until_node_or_tag( $node );
+				break;
+			} elseif ( $this->is_special_element( $node->tag ) ) {
+				$this->parse_error();
+				return $this->drop_current_tag_token();
+			} else {
+				--$i;
+				$node = $this->open_elements[ $i ];
+			}
+		}
 	}
 
 	private $element_bookmark_idx = 0;
@@ -637,7 +646,7 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 			// described in the "any other end tag" entry below.
 			if ( null === $formatting_element ) {
 				dbg("Skipping AAA: no formatting element found", 2);
-				return self::ANY_OTHER_END_TAG;
+				return $this->process_any_other_end_tag( $token );
 			}
 			dbg("AAA: Formatting element = {$formatting_element->tag}", 2);
 
@@ -647,6 +656,19 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 				array_splice( $this->active_formatting_elements, $formatting_element_idx, 1 );
 				$this->parse_error();
 				dbg("Skipping AAA: formatting element is not in the stack of open elements", 2);
+
+				/**
+				 * This is not in the spec, but it's necessary.
+				 * 
+				 * If we were building a DOM, moving on without 
+				 * creating a Node would be the same as dropping 
+				 * the unexpected token.
+				 * 
+				 * We're processing a text stream, though, so simply
+				 * moving on would leave that token in place. Instead,
+				 * we need to drop it explicitly.
+				 */
+				$this->drop_current_tag_token();
 				return;
 			}
 
@@ -654,7 +676,12 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 			if ( ! $this->is_element_in_scope( $formatting_element ) ) {
 				$this->parse_error();
 				dbg("Skipping AAA: formatting element {$formatting_element->tag} is not in scope", 2);
-				$this->print_open_elements('Open elements: ', 2);
+				
+				/**
+				 * This is not in the spec, but it's necessary.
+				 * See the previous "if" statement for details.
+				 */
+				$this->drop_current_tag_token();
 				return;
 			}
 
@@ -699,17 +726,14 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 	}
 
 	private function insert_element( WP_HTML_Tag_Token $token ) {
-		// Text API:
-		// @TODO: do nothing if $token is already in $this->html
-		//        instead of building $this->reconstructed_html
-		//        from scratch
-		// @TODO attrs
 		$this->reconstructed_html .= '<'.$token->tag.'>';
 		if($token !== $this->current_token) {
-			$this->lexical_updates[] = new WP_HTML_Text_Replacement(
-				$this->current_token_start,
-				$this->current_token_start,
-				"<{$token->tag}>"
+			$this->add_lexical_update(
+				new WP_HTML_Text_Replacement(
+					$this->current_token_start,
+					$this->current_token_start,
+					"<{$token->tag}>"
+				)
 			);
 		}
 		array_push($this->open_elements, $token);
@@ -717,10 +741,12 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 	}
 
 	private function insert_tag_closer_before_current_token( $tag ) {
-		$this->lexical_updates[] = new WP_HTML_Text_Replacement(
-			$this->current_token_start,
-			$this->current_token_start,
-			"</$tag>"
+		$this->add_lexical_update(
+			new WP_HTML_Text_Replacement(
+				$this->current_token_start,
+				$this->current_token_start,
+				"</$tag>"
+			)
 		);
 	}
 
@@ -1197,7 +1223,6 @@ $p->parse();
 $p = new WP_HTML_Processor( '<ul><li>1<li>2<li>3<li>Lorem<b>Ipsum<li>Dolor</ul></ul></ul><span></ul>Sit<span>Sit<span><div>Amet' );
 $p->parse();
 
-
 // $p = new WP_HTML_Processor( '<b>
 // <div>
 //    <div></div>
@@ -1210,5 +1235,5 @@ $p->parse();
 $p = new WP_HTML_Processor( '<p><b class=x><b class=x><b><b class=x><b class=x><b><b class=x><b class=x><b><b class=x><b class=x><b>X
 <p>X
 <p><b><b class=x><b>X
-<p></b></b></b></b></b></b>X' );
+<p></b></b></b></b></b></b>Xy' );
 $p->parse();

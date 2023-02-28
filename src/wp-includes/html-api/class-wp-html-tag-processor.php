@@ -1424,7 +1424,7 @@ class WP_HTML_Tag_Processor {
 	 */
 	private function attribute_updates_to_lexical_updates() {
 		foreach ( $this->attribute_updates as $update ) {
-			$this->lexical_updates[] = $update;
+			$this->add_lexical_update( $update );
 		}
 		$this->attribute_updates = array();
 	}
@@ -1503,6 +1503,22 @@ class WP_HTML_Tag_Processor {
 	}
 
 	/**
+	 * WP_HTML_Processor often needs to insert a few tag closers
+	 * at the same offset in a very specific order.
+	 * 
+	 * However, the usort implemented in `apply_lexical_updates` 
+	 * used to reorder them alphabetically based on the text to be
+	 * inserted.
+	 * 
+	 * This method enables retaining the order in which the updates
+	 * were enqueued.
+	 */
+	protected function add_lexical_update( WP_HTML_Text_Replacement $update ) {
+		$update->order = count($this->lexical_updates);
+		$this->lexical_updates[] = $update;
+	}
+
+	/**
 	 * Checks whether a bookmark with the given name exists.
 	 *
 	 * @since 6.3.0
@@ -1567,6 +1583,11 @@ class WP_HTML_Tag_Processor {
 		$by_start = $a->start - $b->start;
 		if ( 0 !== $by_start ) {
 			return $by_start;
+		}
+
+		$by_order = $a->order - $b->order;
+		if ( 0 !== $by_order ) {
+			return $by_order;
 		}
 
 		$by_text = isset( $a->text, $b->text ) ? strcmp( $a->text, $b->text ) : 0;
