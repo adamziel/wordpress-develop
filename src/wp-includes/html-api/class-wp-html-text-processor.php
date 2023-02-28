@@ -88,6 +88,36 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 		return $this->get_updated_html();
 	}
 
+	private $parser_bookmarks = array();
+	public function set_bookmark( $name ) {
+		if ( ! parent::set_bookmark($name) ) {
+			return false;
+		}
+		$this->parser_bookmarks[$name] = array(
+			'open_elements' => $this->open_elements,
+			'active_formatting_elements' => $this->active_formatting_elements,
+		);
+		return true;
+	}
+
+	public function release_bookmark( $bookmark ) {
+		if ( ! parent::release_bookmark($bookmark) ) {
+			return false;
+		}
+		unset($this->parser_bookmarks[$bookmark]);
+		return true;
+	}
+
+	public function seek($bookmark) {
+		if ( ! parent::seek($bookmark) ) {
+			return false;
+		}
+		$bookmark = $this->parser_bookmarks[$bookmark];
+		$this->open_elements = $bookmark['open_elements'];
+		$this->active_formatting_elements = $bookmark['active_formatting_elements'];
+		return true;
+	}
+
 	public function depth() {
 		// -1 because the root HTML element is not counted
 		return count($this->open_elements) - 1;
@@ -99,7 +129,7 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 	}
 
 	public function nth_child($n=1) {
-		if ( 0 === $this->bytes_already_parsed ){
+		if ( null === $this->tag_name_starts_at ) {
 			return $this->next_node();
 		}
 		if ( ! $this->set_bookmark('internal_nth_child') ) {
@@ -137,7 +167,7 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 
 	public function nth_sibling($n = 1)
 	{
-		if ( 0 === $this->bytes_already_parsed ){
+		if ( null === $this->tag_name_starts_at ) {
 			return $this->next_node();
 		}
 		if ( ! $this->set_bookmark('internal_nth_sibling') ) {
@@ -179,28 +209,174 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 		return false;
 	}
 
+	public function inner_html($html=null) {
+		if ( null === $this->tag_name_starts_at ) {
+			return null;
+		}
+
+		if(!$this->set_bookmark('internal_inner_html')) {
+			return false;
+		}
+
+		try {
+			if(!$this->balancing_closer()) {
+				return false;
+			}
+			$tag_closer_starts_at = $this->tag_name_starts_at - 2;
+
+			// Return to the initial cursor position
+			$this->seek('internal_inner_html');
+
+			$content_starts_at = $this->tag_ends_at + 1;
+			if(null === $html) {
+				// Get the inner HTML
+				return substr($this->html, $content_starts_at, $tag_closer_starts_at - $content_starts_at);
+			} else {
+				// Set the inner HTML
+				$this->add_lexical_update(
+					new WP_HTML_Text_Replacement(
+						$content_starts_at,
+						$tag_closer_starts_at,
+						$html
+					)
+				);
+				// Flush lexical updates
+				$this->get_updated_html();
+				$this->seek('internal_inner_html');
+				return true;
+			}
+		} finally {
+			$this->release_bookmark('internal_inner_html');
+		}
+	}
+
+	public function outer_html($html=null) {
+		if ( null === $this->tag_name_starts_at ) {
+			return null;
+		}
+
+		if(!$this->set_bookmark('internal_outer_html')) {
+			return false;
+		}
+
+		try {
+			if(!$this->balancing_closer()) {
+				return false;
+			}
+			$tag_closer_ends_at = $this->tag_ends_at;
+
+			// Return to the initial cursor position
+			$this->seek('internal_outer_html');
+			$tag_starts_at = $this->tag_name_starts_at - 1;
+
+			if(null === $html) {
+				// Get the inner HTML
+				return substr($this->html, $tag_starts_at, $tag_closer_ends_at + 1 - $tag_starts_at);
+			} else {
+				// Set the inner HTML
+				$this->add_lexical_update(
+					new WP_HTML_Text_Replacement(
+						$tag_starts_at,
+						$tag_closer_ends_at + 1, // @todo why +1 is needed?
+						$html
+					)
+				);
+				// Flush lexical updates
+				$this->get_updated_html();
+				return true;
+			}
+		} finally {
+			$this->release_bookmark('internal_outer_html');
+		}
+	}
+
+
+	public function balancing_closer() {
+		if($this->is_tag_closer()) {
+			return false;
+		}
+		if(!$this->set_bookmark('internal_balancing_closer')) {
+			return false;
+		}
+		try {
+			$depth = $this->depth();
+			$token = $this->current_token;
+			while($this->process_next_tag_token()) {
+				if(
+					// Current element popped off the stack
+					$this->depth() < $depth 
+					// Stack is the same size, but the current element was popped
+					|| ($this->depth() === $depth && end($this->open_elements) !== $token)
+				) {
+					/**
+					 * The entire tag contents have been parsed,
+					 * let's seek to the opener and read the inner
+					 * HTML with missing tag closers added back in
+					 */
+					break;
+				}
+			}
+
+			$this->seek('internal_balancing_closer');
+
+			while($this->process_next_tag_token()) {
+				if(
+					// Current element popped off the stack
+					$this->depth() < $depth 
+					// Stack is the same size, but the current element was popped
+					|| ($this->depth() === $depth && end($this->open_elements) !== $token)
+				) {
+					if ($this->is_tag_closer()) {
+						return true;
+					}
+					break;
+				}
+			}
+			
+			// Should never ever happen
+			throw new Exception('Critical parser error: no matching closer found');
+		} finally {
+			$this->release_bookmark('internal_balancing_closer');
+		}
+	}
+
+	private $is_closing_open_tags = false;
 	private function process_next_tag_token() {
+		/*
+		 * We're done with the document but some tags
+		 * are still open. Let's close them one at a time.
+		 */
+		if ( $this->is_closing_open_tags ) {
+			// If only the root element is open, we're done.
+			if(count($this->open_elements) <= 1)
+			{
+				return false;
+			}
+
+			// Otherwise close the next open tag on the stack
+			$this->current_token = null;
+			$this->current_token_start = strlen($this->html);
+			$this->current_token_end = strlen($this->html);
+
+			$this->pop_open_element();
+			$this->get_updated_html();
+
+			$this->next_tag(array('tag_closers' => 'visit'));
+			$this->current_token = new WP_HTML_Tag_Token($this->get_tag());
+			$this->current_token_start = $this->tag_name_starts_at - 2;
+			$this->current_token_end = $this->tag_ends_at;
+			return true;
+		}
+		
 		/**
 		 * Go to the next tag and process any text was found along the way.
 		 */
 		$text_start = $this->tag_ends_at + 1;
 		if (!$this->next_tag(array('tag_closers' => 'visit'))) {
 			$this->process_text($text_start, strlen($this->html));
-			$this->current_token = null;
-			$this->current_token_start = strlen($this->html);
-			$this->current_token_end = strlen($this->html);
 
-			// Some tags were left open, let's close and process them.
-			if(count($this->open_elements) > 1)
-			{
-				while ( count($this->open_elements) > 1 ) {
-					$this->pop_open_element();
-				}
-				// Flush lexical updates
-				$this->get_updated_html();
-			}
-
-			return false;
+			$this->is_closing_open_tags = true;
+			return $this->process_next_tag_token();
 		}
 
 		/**
@@ -503,7 +679,8 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 				case 'UL':
 					if ( ! $this->is_element_in_scope( $this->current_token->tag ) ) {
 						$this->parse_error();
-						return $this->drop_current_tag_token();
+						$this->drop_current_tag_token();
+						return true;
 					}
 					$this->generate_implied_end_tags();
 					$this->pop_until_tag( $this->current_token->tag, false );
@@ -528,16 +705,22 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 				case 'LI':
 					if ( ! $this->is_element_in_list_item_scope( 'LI' ) ) {
 						$this->parse_error();
-						return $this->drop_current_tag_token();
+						$this->drop_current_tag_token();
+						return true;
 					}
-					$this->generate_implied_end_tags();
+					$this->generate_implied_end_tags(
+						array(
+							'except_for' => array( 'LI' ),
+						)
+					);
 					$this->pop_until_tag( 'LI', false );
 					break;
 				case 'DD':
 				case 'DT':
 					if ( ! $this->is_element_in_scope( $this->current_token->tag ) ) {
 						$this->parse_error();
-						return $this->drop_current_tag_token();
+						$this->drop_current_tag_token();
+						return true;
 					}
 					$this->generate_implied_end_tags();
 					$this->pop_until_tag( $this->current_token->tag, false );
@@ -550,7 +733,8 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 				case 'H6':
 					if ( ! $this->is_element_in_scope( array( 'H1', 'H2', 'H3', 'H4', 'H5', 'H6' ) ) ) {
 						$this->parse_error();
-						return $this->drop_current_tag_token();
+						$this->drop_current_tag_token();
+						return true;
 					}
 					$this->generate_implied_end_tags();
 					$this->pop_until_tag( array( 'H1', 'H2', 'H3', 'H4', 'H5', 'H6' ), false );
@@ -577,7 +761,8 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 				case 'OBJECT':
 					if ( ! $this->is_element_in_scope( $this->current_token->tag ) ) {
 						$this->parse_error();
-						return $this->drop_current_tag_token();
+						$this->drop_current_tag_token();
+						return true;
 					}
 					$this->generate_implied_end_tags();
 					if ( $this->current_node()->tag !== $this->current_token->tag ) {
@@ -609,7 +794,7 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 					break;
 			}
 		}
-		return $this->current_token;
+		return true;
 	}
 
 	private function process_text($text_start, $text_end) {
@@ -1254,29 +1439,37 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 }
 
 
-$p = new WP_HTML_Processor( '<p>1<script>HTML Standard</script>3<b>4' );
+// $p = new WP_HTML_Processor( '<p>1<script>HTML Standard</script>3<b>4' );
+// echo $p->parse();
 
-$p = new WP_HTML_Processor( '<ul><li><b>1</b><li>2<li>3<li>Lorem<b>Ipsum<li>Dolor</ul></ul></ul><span></ul>Sit<span>Sit<span><div>Amet' );
-echo $p->parse();
+$p = new WP_HTML_Processor( '<ul><li><b>1</b><li><i>2</i><li>3<li>Lorem<b>Ipsum<li>Dolor</ul></ul></ul><span></ul>Sit<span>Sit<span><div>Amet' );
+// echo $p->parse();
 
-die();
-$p->first_child();
-var_dump($p->get_tag());
-$p->first_child();
-var_dump($p->get_tag());
-$p->next_sibling();
-var_dump($p->get_tag());
-$p->next_sibling();
-var_dump($p->get_tag());
 // die();
+$p->first_child();
+var_dump($p->get_tag());
+$p->first_child();
+var_dump($p->get_tag());
+// $p->next_sibling();
+// var_dump($p->get_tag());
+// $p->next_sibling();
+var_dump($p->inner_html());
+$p->inner_html('<i>Hello</i>');
+var_dump($p->get_updated_html());
 
-$dir = realpath( __DIR__ . '/../../../index.html' );
-
-$htmlspec = file_get_contents( $dir );
-$p = new WP_HTML_Processor( $htmlspec );
-$p->parse();
+// var_dump($p->outer_html());
+// $p->outer_html('<div>Hello</div>');
+// var_dump($p->get_updated_html());
 
 die();
+
+// $dir = realpath( __DIR__ . '/../../../index.html' );
+
+// $htmlspec = file_get_contents( $dir );
+// $p = new WP_HTML_Processor( $htmlspec );
+// $p->parse();
+
+// die();
 
 // $p = new WP_HTML_Processor( '<dd><dt>' );
 // $p->parse();
