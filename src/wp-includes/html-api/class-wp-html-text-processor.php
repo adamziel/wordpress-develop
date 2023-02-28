@@ -74,8 +74,6 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 	private $last_token = null;
 	private $inserted_tokens = array();
 
-	public $reconstructed_html = '';
-
 	const MAX_BOOKMARKS = 1000000;
 
 	public function __construct( $html ) {
@@ -98,9 +96,6 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 		}
 
 		echo("\n");
-		echo("Reconstructed HTML after main loop:\n");
-		echo($this->reconstructed_html.'');
-		echo "\n\n";
 		echo("\$this->HTML after main loop:\n");
 		echo($this->get_updated_html().'');
 		echo "\n\n";
@@ -110,8 +105,6 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 	}
 
 	public function drop_current_tag_token() {
-		// @TODO: remove the current tag from $this->html instead of
-		//        not appending it to $this->reconstructed_html
 		$this->add_lexical_update(
 			new WP_HTML_Text_Replacement(
 				$this->current_token_start,
@@ -152,9 +145,6 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 			dbg( "Found text node '$this->current_token'" );
 			dbg( "Appending text to reconstructed HTML", 1 );
 			$this->reconstruct_active_formatting_elements();
-			// @TODO don't append stuff to $this->reconstructed_html
-			//       instead, skip over the text in $this->html
-			$this->reconstructed_html .= $this->current_token;
 		}
 
 		if ( ! $tag_token ) {
@@ -749,13 +739,16 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 	}
 
 	private function insert_element( WP_HTML_Tag_Token $token ) {
-		$this->reconstructed_html .= '<'.$token->tag.'>';
 		if($token !== $this->current_token) {
+			// Aesthetic choice for now.
+			// @TODO: discuss it with the team
+			$tag = strtolower($token->tag);
+
 			$this->add_lexical_update(
 				new WP_HTML_Text_Replacement(
 					$this->current_token_start,
 					$this->current_token_start,
-					"<{$token->tag}>"
+					"<{$tag}>"
 				)
 			);
 		}
@@ -764,6 +757,9 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 	}
 
 	private function insert_tag_closer_before_current_token( $tag ) {
+		// Aesthetic choice for now.
+		// @TODO: consider preserving the case of the opening tag
+		$tag = strtolower($tag);
 		$this->add_lexical_update(
 			new WP_HTML_Text_Replacement(
 				$this->current_token_start,
@@ -804,7 +800,6 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 
 	private function pop_open_element($add_close_tag = true) {
 		$popped = array_pop( $this->open_elements );
-		$this->reconstructed_html .= '</'.$popped->tag.'>';
 		if ( $add_close_tag ) {
 			$this->insert_tag_closer_before_current_token( $popped->tag );
 		}
