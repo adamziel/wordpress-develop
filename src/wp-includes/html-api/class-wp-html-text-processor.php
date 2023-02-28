@@ -32,6 +32,14 @@ class WP_HTML_Tag_Token {
 
 }
 
+class WP_HTML_Text_Token {
+	public $bookmark;
+
+	public function __construct( $bookmark ) {
+		$this->bookmark = $bookmark;
+	}
+}
+
 /**
  *
  */
@@ -82,7 +90,7 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 		echo("HTML before main loop:\n");
 		echo($this->html);
 		echo("\n");
-		while ($this->next_node()) {
+		while ($this->next_element_node()) {
 			// ... twiddle thumbs ...
 		}
 		while ( count($this->open_elements) > 1 ) {
@@ -107,56 +115,71 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 		$this->add_lexical_update(
 			new WP_HTML_Text_Replacement(
 				$this->current_token_start,
-				$this->current_token_end,
+				$this->current_token_end + 1,
 				''
 			)
 		);
 		return true;
 	}
 
-	private $current_token;
-	private $current_token_start;
-	private $current_token_end;
-	public function next_node() {
+	private $previous_token;
+	private function next_tag_token() {
+		if(
+			$this->current_token &&
+			$this->has_bookmark($this->current_token->bookmark)
+		) {
+			$this->previous_token = $this->current_token;
+		}
+
+		$tag_token = null;
 		$text_start = $this->tag_ends_at + 1;
-		$this->current_token_start = $text_start;
-		if ( $this->next_tag( array( 'tag_closers' => 'visit' ) ) ) {
+		if ($this->next_tag(array('tag_closers' => 'visit'))) {
 			$bookmark = '__internal_' . ( $this->element_bookmark_idx++ );
 			$this->set_bookmark($bookmark);
-			$next_tag = new WP_HTML_Tag_Token(
+			$tag_token = new WP_HTML_Tag_Token(
 				$this->get_tag(),
 				$bookmark
 			);
 			$text_end = $this->bookmarks[$bookmark]->start;
 		} else {
-			$next_tag = null;
-			$this->current_token_start = strlen($this->html);
 			$text_end = strlen($this->html);
 		}
-		$this->current_token_end = $text_end;
 
 		if ($text_start < $text_end) {
-			$text = substr($this->html, $text_start, $text_end - $text_start);
-			$this->current_token = $text;
-			dbg( "Found text node '$text'" );
+			$this->current_token = substr($this->html, $text_start, $text_end - $text_start);
+			$this->current_token_start = $text_start;
+			$this->current_token_end = $text_end;
+			dbg( "Found text node '$this->current_token'" );
 			dbg( "Appending text to reconstructed HTML", 1 );
 			$this->reconstruct_active_formatting_elements();
 			// @TODO don't append stuff to $this->reconstructed_html
 			//       instead, skip over the text in $this->html
-			$this->reconstructed_html .= $text;
+			$this->reconstructed_html .= $this->current_token;
 		}
 
-		$this->current_token = $next_tag;
-		if ( ! $this->current_token ) {
+		if ( ! $tag_token ) {
+			$this->current_token = null;
+			$this->current_token_start = strlen($this->html);
+			$this->current_token_end = strlen($this->html);
 			return false;
 		}
-		$this->current_token_start = $this->bookmarks[$this->current_token->bookmark]->start;
-		$this->current_token_end = $this->bookmarks[$this->current_token->bookmark]->end + 1;
 
-		$token = $this->current_token;
+		$this->current_token = $tag_token;
+		$this->current_token_start = $this->bookmarks[$tag_token->bookmark]->start;
+		$this->current_token_end = $this->bookmarks[$tag_token->bookmark]->end;
+		return true;
+	}
+
+	private $current_token;
+	private $current_token_start;
+	private $current_token_end;
+	public function next_element_node() {
+		if ( ! $this->next_tag_token() ) {
+			return false;
+		}
 		if ( ! $this->is_tag_closer() ) {
-			dbg( "Found {$token->tag} tag opener" );
-			switch ( $token->tag ) {
+			dbg( "Found {$this->current_token->tag} tag opener" );
+			switch ( $this->current_token->tag ) {
 				case 'ADDRESS':
 				case 'ARTICLE':
 				case 'ASIDE':
@@ -191,7 +214,7 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 					if ( $this->is_element_in_button_scope( 'P' ) ) {
 						$this->close_p_element();
 					}
-					$this->insert_element( $token );
+					$this->insert_element( $this->current_token );
 					break;
 				// A start tag whose tag name is "h1", "h2", "h3", "h4", "h5", or "h6"
 				case 'H1':
@@ -206,13 +229,13 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 					if ( in_array( $this->current_node()->tag, array( 'H1', 'H2', 'H3', 'H4', 'H5', 'H6' ) ) ) {
 						$this->pop_open_element();
 					}
-					$this->insert_element( $token );
+					$this->insert_element( $this->current_token );
 					break;
 				case 'FORM':
 					if ( $this->is_element_in_button_scope( 'P' ) ) {
 						$this->close_p_element();
 					}
-					$this->insert_element( $token );
+					$this->insert_element( $this->current_token );
 					break;
 				case 'LI':
 					$i = count( $this->open_elements ) - 1;
@@ -237,7 +260,7 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 					if ( $this->is_element_in_button_scope( 'P' ) ) {
 						$this->close_p_element();
 					}
-					$this->insert_element( $token );
+					$this->insert_element( $this->current_token );
 					break;
 				case 'DD':
 				case 'DT':
@@ -271,7 +294,7 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 					if ( $this->is_element_in_button_scope( 'P' ) ) {
 						$this->close_p_element();
 					}
-					$this->insert_element( $token );
+					$this->insert_element( $this->current_token );
 					break;
 				case 'BUTTON':
 					if ( $this->is_element_in_button_scope( 'BUTTON' ) ) {
@@ -279,7 +302,7 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 						$this->pop_until_node_or_tag( 'BUTTON' );
 					}
 					$this->reconstruct_active_formatting_elements();
-					$this->insert_element( $token );
+					$this->insert_element( $this->current_token );
 					break;
 				case 'A':
 					$active_a = null;
@@ -295,11 +318,11 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 
 					if ( $active_a ) {
 						$this->parse_error();
-						$this->adoption_agency_algorithm( $token );
+						$this->adoption_agency_algorithm( $this->current_token );
 					}
 
 					$this->reconstruct_active_formatting_elements();
-					$node = $this->insert_element( $token );
+					$node = $this->insert_element( $this->current_token );
 					$this->push_active_formatting_element( $node );
 					break;
 				case 'B':
@@ -315,28 +338,28 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 				case 'TT':
 				case 'U':
 					$this->reconstruct_active_formatting_elements();
-					$node = $this->insert_element( $token );
+					$node = $this->insert_element( $this->current_token );
 					$this->push_active_formatting_element( $node );
 					break;
 				case 'NOBR':
 					$this->reconstruct_active_formatting_elements();
 					if ( $this->is_element_in_scope( 'NOBR' ) ) {
 						$this->parse_error();
-						$this->adoption_agency_algorithm( $token );
+						$this->adoption_agency_algorithm( $this->current_token );
 						$this->reconstruct_active_formatting_elements();
 					}
-					$node = $this->insert_element( $token );
+					$node = $this->insert_element( $this->current_token );
 					$this->push_active_formatting_element( $node );
 					break;
 				case 'APPLET':
 				case 'MARQUEE':
 				case 'OBJECT':
 					$this->reconstruct_active_formatting_elements();
-					$this->insert_element( $token );
+					$this->insert_element( $this->current_token );
 					$this->active_formatting_elements[] = $this->MARKER;
 					break;
 				case 'TABLE':
-					$this->insert_element( $token );
+					$this->insert_element( $this->current_token );
 					break;
 				case 'AREA':
 				case 'BR':
@@ -345,52 +368,52 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 				case 'KEYGEN':
 				case 'WBR':
 					$this->reconstruct_active_formatting_elements();
-					$this->insert_element( $token );
+					$this->insert_element( $this->current_token );
 					$this->pop_open_element( false );
 					break;
 				case 'PARAM':
 				case 'SOURCE':
 				case 'TRACK':
-					$this->insert_element( $token );
+					$this->insert_element( $this->current_token );
 					$this->pop_open_element( false );
 					break;
 				case 'HR':
 					if ( $this->is_element_in_button_scope( 'P' ) ) {
 						$this->close_p_element();
 					}
-					$this->insert_element( $token );
+					$this->insert_element( $this->current_token );
 					$this->pop_open_element( false );
 					break;
 				case 'TEXTAREA':
-					$this->insert_element( $token );
+					$this->insert_element( $this->current_token );
 					break;
 				case 'SELECT':
 					$this->reconstruct_active_formatting_elements();
-					$this->insert_element( $token );
+					$this->insert_element( $this->current_token );
 					break;
 				case 'OPTION':
 					$this->pop_open_element(false);
 				case 'OPTGROUP':
 					$this->reconstruct_active_formatting_elements();
-					$this->insert_element( $token );
+					$this->insert_element( $this->current_token );
 					break;
 				case 'RB':
 				case 'RTC':
 					if ( $this->is_element_in_scope( 'RB' ) || $this->is_element_in_scope( 'RTC' ) ) {
 						$this->parse_error();
-						$this->adoption_agency_algorithm( $token );
+						$this->adoption_agency_algorithm( $this->current_token );
 						$this->reconstruct_active_formatting_elements();
 					}
-					$this->insert_element( $token );
+					$this->insert_element( $this->current_token );
 					break;
 				case 'RP':
 				case 'RT':
 					if ( $this->is_element_in_scope( 'RP' ) || $this->is_element_in_scope( 'RT' ) ) {
 						$this->parse_error();
-						$this->adoption_agency_algorithm( $token );
+						$this->adoption_agency_algorithm( $this->current_token );
 						$this->reconstruct_active_formatting_elements();
 					}
-					$this->insert_element( $token );
+					$this->insert_element( $this->current_token );
 					break;
 
 				// case 'XMP':
@@ -401,16 +424,16 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 				// case 'NOSCRIPT':
 				// case 'PLAINTEXT':
 				// case 'IMAGE':
-				// 	throw new Exception( $token->tag . ' not implemented yet' );
+				// 	throw new Exception( $this->current_token->tag . ' not implemented yet' );
 
 				default:
 					$this->reconstruct_active_formatting_elements();
-					$this->insert_element( $token );
+					$this->insert_element( $this->current_token );
 					break;
 			}
 		} else {
-			dbg( "Found {$token->tag} tag closer" );
-			switch ( $token->tag ) {
+			dbg( "Found {$this->current_token->tag} tag closer" );
+			switch ( $this->current_token->tag ) {
 				case 'ADDRESS':
 				case 'ARTICLE':
 				case 'ASIDE':
@@ -435,16 +458,16 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 				case 'SECTION':
 				case 'SUMMARY':
 				case 'UL':
-					if ( ! $this->is_element_in_scope( $token->tag ) ) {
+					if ( ! $this->is_element_in_scope( $this->current_token->tag ) ) {
 						$this->parse_error();
 						return $this->drop_current_tag_token();
 					}
 					$this->generate_implied_end_tags();
-					$this->pop_until_node_or_tag( $token->tag, false );
+					$this->pop_until_node_or_tag( $this->current_token->tag, false );
 					break;
 				case 'FORM':
 					$this->generate_implied_end_tags();
-					$this->pop_until_node_or_tag( $token->tag, false );
+					$this->pop_until_node_or_tag( $this->current_token->tag, false );
 					break;
 				case 'P':
 					/*
@@ -469,12 +492,12 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 					break;
 				case 'DD':
 				case 'DT':
-					if ( ! $this->is_element_in_scope( $token->tag ) ) {
+					if ( ! $this->is_element_in_scope( $this->current_token->tag ) ) {
 						$this->parse_error();
 						return $this->drop_current_tag_token();
 					}
 					$this->generate_implied_end_tags();
-					$this->pop_until_node_or_tag( $token->tag, false );
+					$this->pop_until_node_or_tag( $this->current_token->tag, false );
 					break;
 				case 'H1':
 				case 'H2':
@@ -502,32 +525,32 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 				case 'STRONG':
 				case 'TT':
 				case 'U':
-					dbg( "Found {$token->tag} tag closer" );
-					$this->adoption_agency_algorithm( $token );
+					dbg( "Found {$this->current_token->tag} tag closer" );
+					$this->adoption_agency_algorithm( $this->current_token );
 					break;
 
 				case 'APPLET':
 				case 'MARQUEE':
 				case 'OBJECT':
-					if ( ! $this->is_element_in_scope( $token->tag ) ) {
+					if ( ! $this->is_element_in_scope( $this->current_token->tag ) ) {
 						$this->parse_error();
 						return $this->drop_current_tag_token();
 					}
 					$this->generate_implied_end_tags();
-					if ( $this->current_node()->tag !== $token->tag ) {
+					if ( $this->current_node()->tag !== $this->current_token->tag ) {
 						$this->parse_error();
 					}
-					$this->pop_until_node_or_tag( $token->tag, false );
+					$this->pop_until_node_or_tag( $this->current_token->tag, false );
 					$this->clear_active_formatting_elements_up_to_last_marker();
 					break;
 				case 'BR':
 					// This should never happen since Tag_Processor corrects that
 				default:
-					$this->process_any_other_end_tag( $token );
+					$this->process_any_other_end_tag( $this->current_token );
 					break;
 			}
 		}
-		return $token;
+		return $this->current_token;
 	}
 
 	private function process_any_other_end_tag( WP_HTML_Tag_Token $token ) {
