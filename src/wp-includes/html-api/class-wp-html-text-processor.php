@@ -182,9 +182,28 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 	}
 
 	private function process_next_tag_token() {
-		if ( ! $this->next_tag_token() ) {
+		/**
+		 * Go to the next tag and process any text was found along the way.
+		 */
+		$text_start = $this->tag_ends_at + 1;
+		if (!$this->next_tag(array('tag_closers' => 'visit'))) {
+			$this->process_text($text_start, strlen($this->html));
+			$this->current_token = null;
+			$this->current_token_start = strlen($this->html);
+			$this->current_token_end = strlen($this->html);
 			return false;
 		}
+
+		/**
+		 * We found a tag! Let's process any text we may have found along the way.
+		 */
+		$current_tag_start = $this->tag_name_starts_at - ( $this->is_closing_tag ? 2 : 1 );
+		$this->process_text($text_start, $current_tag_start);
+
+		$this->current_token = new WP_HTML_Tag_Token($this->get_tag());
+		$this->current_token_start = $current_tag_start;
+		$this->current_token_end = $this->tag_ends_at;
+
 		if ( ! $this->is_tag_closer() ) {
 			dbg( "Found {$this->current_token->tag} tag opener" );
 			switch ( $this->current_token->tag ) {
@@ -582,34 +601,6 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 			}
 		}
 		return $this->current_token;
-	}
-
-	private function next_tag_token() {
-		$tag_token = null;
-		$bookmark = null;
-		$text_start = $this->tag_ends_at + 1;
-		if (!$this->next_tag(array('tag_closers' => 'visit'))) {
-			$this->process_text($text_start, strlen($this->html));
-			$this->current_token = null;
-			$this->current_token_start = strlen($this->html);
-			$this->current_token_end = strlen($this->html);
-			return false;
-		}
-
-		// @TODO don't create a bookmark for every single tag
-		$bookmark = '__internal_' . ( $this->element_bookmark_idx++ );
-		$this->set_bookmark($bookmark);
-		$tag_token = new WP_HTML_Tag_Token($this->get_tag());
-		$text_end = $this->bookmarks[$bookmark]->start;
-
-		$this->process_text($text_start, $text_end);
-
-		$this->current_token = $tag_token;
-		$this->current_token_start = $this->bookmarks[$bookmark]->start;
-		$this->current_token_end = $this->bookmarks[$bookmark]->end;
-		$this->release_bookmark($bookmark);
-
-		return true;
 	}
 
 	private function process_text($text_start, $text_end) {
@@ -1263,7 +1254,7 @@ $p->next_sibling();
 var_dump($p->get_tag());
 $p->next_sibling();
 var_dump($p->get_tag());
-die();
+// die();
 
 $dir = realpath( __DIR__ . '/../../../index.html' );
 
