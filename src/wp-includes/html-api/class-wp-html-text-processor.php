@@ -19,15 +19,13 @@ function dbg( $message, $indent = 0 ) {
 	}
 }
 
+// It's an object because sometimes the identity matters
 class WP_HTML_Tag_Token {
 
 	public $tag;
 
-	public $bookmark;
-
-	public function __construct( $tag, $bookmark = null ) {
+	public function __construct( $tag ) {
 		$this->tag = $tag;
-		$this->bookmark = $bookmark;
 	}
 
 }
@@ -65,10 +63,19 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 
 	public function parse() {
 		echo("HTML before main loop:\n");
-		echo($this->html);
+		// echo($this->html);
 		echo("\n");
+		$i = 0;
 		while ($this->next_element_node()) {
 			// ... twiddle thumbs ...
+			if(++$i % 10000 === 0)
+			{
+				echo $this->get_tag()." oe: " . count($this->open_elements) . " ";
+				echo "afe: " . count($this->active_formatting_elements) . " \n";
+				echo "Peak mem:" . round(memory_get_peak_usage(true) / 1024 / 1024, 2) . "MB\n";
+				// print_r($this->open_elements);
+				// die();
+			}
 		}
 		while ( count($this->open_elements) > 1 ) {
 			$this->pop_open_element();
@@ -76,11 +83,12 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 
 		echo("\n");
 		echo("\$this->HTML after main loop:\n");
-		echo($this->get_updated_html().'');
+		// echo($this->get_updated_html().'');
 		echo "\n\n";
 
 		echo "Mem peak usage:" . (memory_get_peak_usage(true) / 1024 / 1024) . "MB\n";
 		echo("\n---------------\n\n");
+		return $this->get_updated_html();
 	}
 
 	public function next_element_node() {
@@ -90,6 +98,9 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 		if ( ! $this->is_tag_closer() ) {
 			dbg( "Found {$this->current_token->tag} tag opener" );
 			switch ( $this->current_token->tag ) {
+				case 'HTML':
+					$this->drop_current_tag_token();
+					break;
 				case 'ADDRESS':
 				case 'ARTICLE':
 				case 'ASIDE':
@@ -268,6 +279,9 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 				case 'TABLE':
 					$this->insert_element( $this->current_token );
 					break;
+
+				// Void elements.
+				// Some require reconstructing the active formatting elements.
 				case 'AREA':
 				case 'BR':
 				case 'EMBED':
@@ -275,9 +289,13 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 				case 'KEYGEN':
 				case 'WBR':
 					$this->reconstruct_active_formatting_elements();
-					$this->insert_element( $this->current_token );
-					$this->pop_open_element( false );
-					break;
+				// But others don't.
+				case 'META':
+				case 'LINK':
+				case 'BASE':
+				case 'COL':
+				case 'FRAME':
+				case 'INPUT':
 				case 'PARAM':
 				case 'SOURCE':
 				case 'TRACK':
@@ -450,6 +468,22 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 					$this->pop_until_tag( $this->current_token->tag, false );
 					$this->clear_active_formatting_elements_up_to_last_marker();
 					break;
+
+				/*
+				 * @divergence from spec:
+				 * Close all the open tags when a table-related
+				 * tag closer is encountered
+				 */
+				case 'TBODY':
+				case 'TFOOT':
+				case 'THEAD':
+				case 'TD':
+				case 'TH':
+				case 'TR':
+				case 'TABLE':
+					$this->pop_until_tag( $this->current_token->tag, false );
+					break;
+
 				case 'BR':
 					// This should never happen since Tag_Processor corrects that
 				default:
@@ -462,20 +496,33 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 
 	private function next_tag_token() {
 		$tag_token = null;
+		$bookmark = null;
 		$text_start = $this->tag_ends_at + 1;
-		if ($this->next_tag(array('tag_closers' => 'visit'))) {
-			// @TODO don't create a bookmark for every single tag
-			$bookmark = '__internal_' . ( $this->element_bookmark_idx++ );
-			$this->set_bookmark($bookmark);
-			$tag_token = new WP_HTML_Tag_Token(
-				$this->get_tag(),
-				$bookmark
-			);
-			$text_end = $this->bookmarks[$bookmark]->start;
-		} else {
-			$text_end = strlen($this->html);
+		if (!$this->next_tag(array('tag_closers' => 'visit'))) {
+			$this->process_text($text_start, strlen($this->html));
+			$this->current_token = null;
+			$this->current_token_start = strlen($this->html);
+			$this->current_token_end = strlen($this->html);
+			return false;
 		}
 
+		// @TODO don't create a bookmark for every single tag
+		$bookmark = '__internal_' . ( $this->element_bookmark_idx++ );
+		$this->set_bookmark($bookmark);
+		$tag_token = new WP_HTML_Tag_Token($this->get_tag());
+		$text_end = $this->bookmarks[$bookmark]->start;
+
+		$this->process_text($text_start, $text_end);
+
+		$this->current_token = $tag_token;
+		$this->current_token_start = $this->bookmarks[$bookmark]->start;
+		$this->current_token_end = $this->bookmarks[$bookmark]->end;
+		$this->release_bookmark($bookmark);
+
+		return true;
+	}
+
+	private function process_text($text_start, $text_end) {
 		if ($text_start < $text_end) {
 			$this->current_token = substr($this->html, $text_start, $text_end - $text_start);
 			$this->current_token_start = $text_start;
@@ -484,18 +531,6 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 			dbg( "Appending text to reconstructed HTML", 1 );
 			$this->reconstruct_active_formatting_elements();
 		}
-
-		if ( ! $tag_token ) {
-			$this->current_token = null;
-			$this->current_token_start = strlen($this->html);
-			$this->current_token_end = strlen($this->html);
-			return false;
-		}
-
-		$this->current_token = $tag_token;
-		$this->current_token_start = $this->bookmarks[$tag_token->bookmark]->start;
-		$this->current_token_end = $this->bookmarks[$tag_token->bookmark]->end;
-		return true;
 	}
 
 	private function process_any_other_end_tag( WP_HTML_Tag_Token $token ) {
@@ -745,7 +780,7 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 			)
 		);
 		// If the current node is not a p element, then this is a parse error.
-		if ( $this->get_tag() !== 'P' ) {
+		if ( $this->current_node()->tag !== 'P' ) {
 			$this->parse_error();
 		}
 		$this->pop_until_tag( 'P', false );
@@ -773,7 +808,7 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 				return true;
 		}
 
-		$thoroughly = null !== $options && isset( $options['thoroughly'] ) && $options['thoroughly'];
+		$thoroughly = true; //null !== $options && isset( $options['thoroughly'] ) && $options['thoroughly'];
 		if ( $thoroughly ) {
 			switch ( $current_tag_name ) {
 				case 'TBODY':
@@ -1128,17 +1163,26 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 
 }
 
-// $dir = realpath( __DIR__ . '/../../../index.html' );
+$dir = realpath( __DIR__ . '/../../../index.html' );
 
-// $htmlspec = file_get_contents( $dir );
-// $p = new WP_HTML_Processor( $htmlspec );
-// $p->parse();
-
-// die();
-
-$p = new WP_HTML_Processor( '<dd><dt>' );
+$htmlspec = file_get_contents( $dir );
+$p = new WP_HTML_Processor( $htmlspec );
 $p->parse();
+
 die();
+
+// $p = new WP_HTML_Processor( '<dd><dt>' );
+// $p->parse();
+// die();
+// $p = new WP_HTML_Processor( '<p>1<title>HTML Standard</title><meta content=#3c790a name=theme-color>3<b>4</b>5</p>' );
+// $p->parse();
+$p = new WP_HTML_Processor( '<p>1<table><tbody><tr><td>HTML</td><td>Standard</table></p><div>test</div>' );
+echo $p->parse();
+die();
+
+$p = new WP_HTML_Processor( '<p>1<script>HTML Standard</script>3<b>4</b>5</p>' );
+$p->parse();
+
 $p = new WP_HTML_Processor( '<p>1<b>2<i>3</b>4</i>5</p>' );
 $p->parse();
 
