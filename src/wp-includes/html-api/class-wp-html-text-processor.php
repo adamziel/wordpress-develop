@@ -32,14 +32,6 @@ class WP_HTML_Tag_Token {
 
 }
 
-class WP_HTML_Text_Token {
-	public $bookmark;
-
-	public function __construct( $bookmark ) {
-		$this->bookmark = $bookmark;
-	}
-}
-
 /**
  *
  */
@@ -58,6 +50,8 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 	private $root_node                  = null;
 	private $context_node               = null;
 
+	private $element_bookmark_idx = 0;
+			
 	/*
 	 * WP_HTML_Tag_Processor skips over text nodes and only
 	 * processes tags.
@@ -102,62 +96,6 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 
 		echo "Mem peak usage:" . (memory_get_peak_usage(true) / 1024 / 1024) . "MB\n";
 		echo("\n---------------\n\n");
-	}
-
-	public function drop_current_tag_token() {
-		$this->add_lexical_update(
-			new WP_HTML_Text_Replacement(
-				$this->current_token_start,
-				$this->current_token_end + 1,
-				''
-			)
-		);
-		return true;
-	}
-
-	private $previous_token;
-	private function next_tag_token() {
-		if(
-			$this->current_token &&
-			$this->has_bookmark($this->current_token->bookmark)
-		) {
-			$this->previous_token = $this->current_token;
-		}
-
-		$tag_token = null;
-		$text_start = $this->tag_ends_at + 1;
-		if ($this->next_tag(array('tag_closers' => 'visit'))) {
-			$bookmark = '__internal_' . ( $this->element_bookmark_idx++ );
-			$this->set_bookmark($bookmark);
-			$tag_token = new WP_HTML_Tag_Token(
-				$this->get_tag(),
-				$bookmark
-			);
-			$text_end = $this->bookmarks[$bookmark]->start;
-		} else {
-			$text_end = strlen($this->html);
-		}
-
-		if ($text_start < $text_end) {
-			$this->current_token = substr($this->html, $text_start, $text_end - $text_start);
-			$this->current_token_start = $text_start;
-			$this->current_token_end = $text_end;
-			dbg( "Found text node '$this->current_token'" );
-			dbg( "Appending text to reconstructed HTML", 1 );
-			$this->reconstruct_active_formatting_elements();
-		}
-
-		if ( ! $tag_token ) {
-			$this->current_token = null;
-			$this->current_token_start = strlen($this->html);
-			$this->current_token_end = strlen($this->html);
-			return false;
-		}
-
-		$this->current_token = $tag_token;
-		$this->current_token_start = $this->bookmarks[$tag_token->bookmark]->start;
-		$this->current_token_end = $this->bookmarks[$tag_token->bookmark]->end;
-		return true;
 	}
 
 	private $current_token;
@@ -237,7 +175,7 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 									'except_for' => array( 'LI' ),
 								)
 							);
-							$this->pop_until_node_or_tag( 'LI' );
+							$this->pop_until_tag( 'LI' );
 							break;
 						} elseif ( self::is_special_element( $node->tag, array( 'ADDRESS', 'DIV', 'P' ) ) ) {
 							break;
@@ -263,7 +201,7 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 									'except_for' => array( 'DD' ),
 								)
 							);
-							$this->pop_until_node_or_tag( 'DD' );
+							$this->pop_until_tag( 'DD' );
 							break;
 						} elseif ( $node->tag === 'DT' ) {
 							$this->generate_implied_end_tags(
@@ -271,7 +209,7 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 									'except_for' => array( 'DT' ),
 								)
 							);
-							$this->pop_until_node_or_tag( 'DT' );
+							$this->pop_until_tag( 'DT' );
 							break;
 						} elseif ( self::is_special_element( $node->tag, array( 'ADDRESS', 'DIV', 'P' ) ) ) {
 							break;
@@ -289,7 +227,7 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 				case 'BUTTON':
 					if ( $this->is_element_in_button_scope( 'BUTTON' ) ) {
 						$this->generate_implied_end_tags();
-						$this->pop_until_node_or_tag( 'BUTTON' );
+						$this->pop_until_tag( 'BUTTON' );
 					}
 					$this->reconstruct_active_formatting_elements();
 					$this->insert_element( $this->current_token );
@@ -453,11 +391,11 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 						return $this->drop_current_tag_token();
 					}
 					$this->generate_implied_end_tags();
-					$this->pop_until_node_or_tag( $this->current_token->tag, false );
+					$this->pop_until_tag( $this->current_token->tag, false );
 					break;
 				case 'FORM':
 					$this->generate_implied_end_tags();
-					$this->pop_until_node_or_tag( $this->current_token->tag, false );
+					$this->pop_until_tag( $this->current_token->tag, false );
 					break;
 				case 'P':
 					/*
@@ -478,7 +416,7 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 						return $this->drop_current_tag_token();
 					}
 					$this->generate_implied_end_tags();
-					$this->pop_until_node_or_tag( 'LI', false );
+					$this->pop_until_tag( 'LI', false );
 					break;
 				case 'DD':
 				case 'DT':
@@ -487,7 +425,7 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 						return $this->drop_current_tag_token();
 					}
 					$this->generate_implied_end_tags();
-					$this->pop_until_node_or_tag( $this->current_token->tag, false );
+					$this->pop_until_tag( $this->current_token->tag, false );
 					break;
 				case 'H1':
 				case 'H2':
@@ -500,7 +438,7 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 						return $this->drop_current_tag_token();
 					}
 					$this->generate_implied_end_tags();
-					$this->pop_until_node_or_tag( array( 'H1', 'H2', 'H3', 'H4', 'H5', 'H6' ), false );
+					$this->pop_until_tag( array( 'H1', 'H2', 'H3', 'H4', 'H5', 'H6' ), false );
 					break;
 				case 'A':
 				case 'B':
@@ -530,7 +468,7 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 					if ( $this->current_node()->tag !== $this->current_token->tag ) {
 						$this->parse_error();
 					}
-					$this->pop_until_node_or_tag( $this->current_token->tag, false );
+					$this->pop_until_tag( $this->current_token->tag, false );
 					$this->clear_active_formatting_elements_up_to_last_marker();
 					break;
 				case 'BR':
@@ -541,6 +479,44 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 			}
 		}
 		return $this->current_token;
+	}
+
+	private function next_tag_token() {
+		$tag_token = null;
+		$text_start = $this->tag_ends_at + 1;
+		if ($this->next_tag(array('tag_closers' => 'visit'))) {
+			// @TODO don't create a bookmark for every single tag
+			$bookmark = '__internal_' . ( $this->element_bookmark_idx++ );
+			$this->set_bookmark($bookmark);
+			$tag_token = new WP_HTML_Tag_Token(
+				$this->get_tag(),
+				$bookmark
+			);
+			$text_end = $this->bookmarks[$bookmark]->start;
+		} else {
+			$text_end = strlen($this->html);
+		}
+
+		if ($text_start < $text_end) {
+			$this->current_token = substr($this->html, $text_start, $text_end - $text_start);
+			$this->current_token_start = $text_start;
+			$this->current_token_end = $text_end;
+			dbg( "Found text node '$this->current_token'" );
+			dbg( "Appending text to reconstructed HTML", 1 );
+			$this->reconstruct_active_formatting_elements();
+		}
+
+		if ( ! $tag_token ) {
+			$this->current_token = null;
+			$this->current_token_start = strlen($this->html);
+			$this->current_token_end = strlen($this->html);
+			return false;
+		}
+
+		$this->current_token = $tag_token;
+		$this->current_token_start = $this->bookmarks[$tag_token->bookmark]->start;
+		$this->current_token_end = $this->bookmarks[$tag_token->bookmark]->end;
+		return true;
 	}
 
 	private function process_any_other_end_tag( WP_HTML_Tag_Token $token ) {
@@ -557,7 +533,7 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 				if ( $node->tag !== $tag ) {
 					$this->parse_error();
 				}
-				$this->pop_until_node_or_tag( $node );
+				$this->pop_until_node( $node );
 				break;
 			} elseif ( $this->is_special_element( $node->tag ) ) {
 				$this->parse_error();
@@ -569,56 +545,6 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 		}
 	}
 
-	private $element_bookmark_idx = 0;
-	private function next_token() {
-		if($this->buffered_tag){
-			$next_tag = $this->buffered_tag;
-			$this->buffered_tag = null;
-			return $next_tag;
-		}
-
-		$next_tag = false;
-		if ( $this->next_tag( array( 'tag_closers' => 'visit' ) ) ) {
-			$bookmark = '__internal_' . ( $this->element_bookmark_idx++ );
-			$this->set_bookmark($bookmark);
-			$attributes = array();
-			$attrs = $this->get_attribute_names_with_prefix('');
-			if ($attrs) {
-				foreach ($attrs as $name) {
-					$attributes[$name] = $this->get_attribute($name);
-				}
-			}
-			$next_tag = new WP_HTML_Tag_Token(
-				$this->get_tag(),
-				$bookmark
-			);
-			$text_end = $this->bookmarks[$bookmark]->start;
-		} else {
-			$text_end = strlen($this->html);
-		}
-
-		/*
-		 * If any text was found between the last tag and this one, 
-		 * save the next tag for later and return the text token.
-		 */
-		$last = $this->last_token;
-		if ( 
-			$last
-			&& $last->bookmark
-			&& $this->has_bookmark($last->bookmark)
-		) {
-			$text_start = $this->bookmarks[$last->bookmark]->end + 1;
-			if ($text_start < $text_end) {
-				$this->buffered_tag = $next_tag;
-				$text = substr($this->html, $text_start, $text_end - $text_start);
-				return $text;
-			}
-		}
-
-		return $next_tag;
-	}
-
-	const ANY_OTHER_END_TAG = 1;
 	private function adoption_agency_algorithm( WP_HTML_Tag_Token $token ) {
 		dbg("Adoption Agency Algorithm", 1);
 		$subject = $token->tag;
@@ -725,7 +651,7 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 			// and including formatting element, then remove formatting element from
 			// the list of active formatting elements, and finally abort these steps.
 			if ( null === $furthest_block ) {
-				$this->pop_until_node_or_tag( $formatting_element, false );
+				$this->pop_until_node( $formatting_element, false );
 				array_splice( $this->active_formatting_elements, $formatting_element_idx, 1 );
 				dbg("Skipping AAA: no furthest block found", 2);
 				return;
@@ -756,6 +682,59 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 		return $token;
 	}
 
+	private function parse_error() {
+		// Noop for now
+	}
+
+	private function pop_until_tag( $tag_names, $insert_tag_closer_for_last_popped_element = true ) {
+		// @TODO split this into two methods
+		if(!is_array($tag_names)) {
+			$tag_names = array($tag_names);
+		}
+		while( true ) {
+			$popped = $this->pop_open_element( false );
+			if(in_array($popped->tag, $tag_names, true)) {
+				break;
+			}
+			$this->insert_tag_closer_before_current_token($popped->tag);
+		}
+		if($insert_tag_closer_for_last_popped_element) {
+			$this->insert_tag_closer_before_current_token($popped->tag);
+		}
+	}
+
+	private function pop_until_node( WP_HTML_Tag_Token $target, $insert_tag_closer_for_last_popped_element = true ) {
+		while( true ) {
+			$popped = $this->pop_open_element( false );
+			if($popped === $target) {
+				break;
+			}
+			$this->insert_tag_closer_before_current_token($popped->tag);
+		}
+		if($insert_tag_closer_for_last_popped_element) {
+			$this->insert_tag_closer_before_current_token($popped->tag);
+		}
+	}
+
+	private function pop_open_element($add_close_tag = true) {
+		$popped = array_pop( $this->open_elements );
+		if ( $add_close_tag ) {
+			$this->insert_tag_closer_before_current_token( $popped->tag );
+		}
+		return $popped;
+	}
+
+	public function drop_current_tag_token() {
+		$this->add_lexical_update(
+			new WP_HTML_Text_Replacement(
+				$this->current_token_start,
+				$this->current_token_end + 1,
+				''
+			)
+		);
+		return true;
+	}
+
 	private function insert_tag_closer_before_current_token( $tag ) {
 		// Aesthetic choice for now.
 		// @TODO: consider preserving the case of the opening tag
@@ -769,43 +748,6 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 		);
 	}
 
-	private function parse_error() {
-		// Noop for now
-	}
-
-	private function pop_until_node_or_tag( $node_or_element, $tag_closer_for_last_element = true ) {
-		while( true ) {
-			$popped = $this->pop_open_element( false );
-			if ($tag_closer_for_last_element) {
-				$this->insert_tag_closer_before_current_token($popped->tag);
-			}
-			if(is_string($node_or_element)) {
-				if($popped->tag === $node_or_element) {
-					break;
-				}
-			} else if(is_array($node_or_element)) {
-				if(in_array($popped->tag, $node_or_element)) {
-					break;
-				}
-			} else {
-				if($popped === $node_or_element) {
-					break;
-				}
-			}
-			if(!$tag_closer_for_last_element) {
-				$this->insert_tag_closer_before_current_token($popped->tag);
-			}
-		}
-	}
-
-	private function pop_open_element($add_close_tag = true) {
-		$popped = array_pop( $this->open_elements );
-		if ( $add_close_tag ) {
-			$this->insert_tag_closer_before_current_token( $popped->tag );
-		}
-		return $popped;
-	}
-
 	private function generate_implied_end_tags( $options = null ) {
 		while( $this->should_generate_implied_end_tags( $options ) ) {
 			$this->pop_open_element( true );
@@ -816,7 +758,7 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 		return end( $this->open_elements );
 	}
 
-	private function close_p_element($closer_for_last_elem = true) {
+	private function close_p_element($insert_p_tag_closer = true) {
 		dbg( "close_p_element" );
 		$this->generate_implied_end_tags(
 			array(
@@ -827,7 +769,10 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 		if ( $this->get_tag() !== 'P' ) {
 			$this->parse_error();
 		}
-		$this->pop_until_node_or_tag( 'P', $closer_for_last_elem );
+		$this->pop_until_tag( 'P', false );
+		if($insert_p_tag_closer) {
+			$this->insert_tag_closer_before_current_token( 'P' );
+		}
 	}
 
 	private function should_generate_implied_end_tags( $options = null ) {
@@ -887,26 +832,7 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 		$this->active_formatting_elements[] = $node;
 	}
 
-	private function print_active_formatting_elements($msg, $indent=1) {
-		if (HTML_DEBUG_MODE) {
-			$formats = array_map(function ($node) {
-				return $this->MARKER === $node ? 'M' : ($node->tag ?: 'ERROR');
-			}, $this->active_formatting_elements);
-			dbg("$msg " . implode(', ', $formats), $indent);
-		}
-	}
-
-	private function print_open_elements($msg, $indent=1) {
-		if (HTML_DEBUG_MODE) {
-			$elems = array_map(function ($node) {
-				return $node->tag;
-			}, $this->open_elements);
-			dbg("$msg " . implode(', ', $elems), $indent);
-		}
-	}
-
 	private function reconstruct_active_formatting_elements() {
-		$this->print_active_formatting_elements('AFE: before');
 		if ( empty( $this->active_formatting_elements ) ) {
 			dbg( "Skipping AFE: empty list", 1 );
 			return;
@@ -960,7 +886,6 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 				break;
 			}
 		}
-		$this->print_active_formatting_elements('AFE: after');
 	}
 
 	private function clear_active_formatting_elements_up_to_last_marker() {
