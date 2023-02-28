@@ -47,35 +47,20 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 	 * @var WP_HTML_Tag_Token[]
 	 */
 	private $active_formatting_elements = array();
-	private $root_node                  = null;
-	private $context_node               = null;
 
 	private $element_bookmark_idx = 0;
-			
-	/*
-	 * WP_HTML_Tag_Processor skips over text nodes and only
-	 * processes tags.
-	 * 
-	 * WP_HTML_Processor needs to process text nodes as well.
-	 * 
-	 * Whenever the tag processor skips over text to move to
-	 * the next tag, the next_token() method emits that text 
-	 * as a token and stores the tag in $buffered_tag to be
-	 * returned the next time.
-	 */
-	private $buffered_tag = null;
-
-	private $last_token = null;
-	private $inserted_tokens = array();
+	private $current_token;
+	private $current_token_start;
+	private $current_token_end;
 
 	const MAX_BOOKMARKS = 1000000;
 
 	public function __construct( $html ) {
 		parent::__construct( $html );
 		$this->MARKER = new WP_HTML_Tag_Token(null);
-		$this->root_node     = new WP_HTML_Tag_Token( 'HTML' );
-		$this->context_node  = new WP_HTML_Tag_Token( 'DOCUMENT' );
-		$this->open_elements = array( $this->root_node );
+		$this->open_elements = array( 
+			new WP_HTML_Tag_Token( 'HTML' )
+		);
 	}
 
 	public function parse() {
@@ -98,9 +83,6 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 		echo("\n---------------\n\n");
 	}
 
-	private $current_token;
-	private $current_token_start;
-	private $current_token_end;
 	public function next_element_node() {
 		if ( ! $this->next_tag_token() ) {
 			return false;
@@ -192,9 +174,9 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 					break;
 				case 'DD':
 				case 'DT':
-					$i = count( $this->open_elements ) - 1;
-					while ( true ) {
-						$node = $this->open_elements[ $i ];
+					$i = count( $this->open_elements );
+					while ( $i > 0 ) {
+						$node = $this->open_elements[ --$i ];
 						if ( $node->tag === 'DD' ) {
 							$this->generate_implied_end_tags(
 								array(
@@ -213,9 +195,6 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 							break;
 						} elseif ( self::is_special_element( $node->tag, array( 'ADDRESS', 'DIV', 'P' ) ) ) {
 							break;
-						} else {
-							--$i;
-							$node = $this->open_elements[ $i ];
 						}
 					}
 
@@ -776,7 +755,7 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 	}
 
 	private function should_generate_implied_end_tags( $options = null ) {
-		$current_tag_name = $this->get_tag();
+		$current_tag_name = $this->current_node()->tag;
 		if ( null !== $options && isset( $options['except_for'] ) && in_array( $current_tag_name, $options['except_for'] ) ) {
 			return false;
 		}
@@ -1157,6 +1136,9 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 
 // die();
 
+$p = new WP_HTML_Processor( '<dd><dt>' );
+$p->parse();
+die();
 $p = new WP_HTML_Processor( '<p>1<b>2<i>3</b>4</i>5</p>' );
 $p->parse();
 
