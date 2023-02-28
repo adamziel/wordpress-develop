@@ -115,6 +115,9 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 		$bookmark = $this->parser_bookmarks[$bookmark];
 		$this->open_elements = $bookmark['open_elements'];
 		$this->active_formatting_elements = $bookmark['active_formatting_elements'];
+		$this->current_token = end($bookmark['open_elements']);
+		$this->current_token_start = $this->tag_name_starts_at - ($this->is_tag_closer() ? 2 : 1);
+		$this->current_token_end = $this->tag_ends_at;
 		return true;
 	}
 
@@ -241,7 +244,6 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 					)
 				);
 				// Flush lexical updates
-				$this->get_updated_html();
 				$this->seek('internal_inner_html');
 				return true;
 			}
@@ -258,7 +260,6 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 		if(!$this->set_bookmark('internal_outer_html')) {
 			return false;
 		}
-
 		try {
 			if(!$this->balancing_closer()) {
 				return false;
@@ -273,16 +274,30 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 				// Get the inner HTML
 				return substr($this->html, $tag_starts_at, $tag_closer_ends_at + 1 - $tag_starts_at);
 			} else {
+				// Hack to prevent invalidating the bookmark upon replacing the outer html
+				--$this->bookmarks['internal_outer_html']->start;
+				$this->bookmarks['internal_outer_html']->end = $this->bookmarks['internal_outer_html']->start;
+				$last_open_element = array_pop($this->parser_bookmarks['internal_outer_html']['open_elements']);
+				if(end($this->parser_bookmarks['internal_outer_html']['active_formatting_elements']) === $last_open_element) {
+					array_pop($this->parser_bookmarks['internal_outer_html']['active_formatting_elements']);
+				}
+
 				// Set the inner HTML
 				$this->add_lexical_update(
 					new WP_HTML_Text_Replacement(
 						$tag_starts_at,
-						$tag_closer_ends_at + 1, // @todo why +1 is needed?
+						$tag_closer_ends_at + 1,
 						$html
 					)
 				);
 				// Flush lexical updates
 				$this->get_updated_html();
+
+				// Hack to prevent invalidating the bookmark upon replacing the outer html
+				++$this->bookmarks['internal_outer_html']->start;
+				$this->bookmarks['internal_outer_html']->end = $this->bookmarks['internal_outer_html']->start;
+
+				$this->seek('internal_outer_html');
 				return true;
 			}
 		} finally {
@@ -1442,24 +1457,23 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 // $p = new WP_HTML_Processor( '<p>1<script>HTML Standard</script>3<b>4' );
 // echo $p->parse();
 
-$p = new WP_HTML_Processor( '<ul><li><b>1</b><li><i>2</i><li>3<li>Lorem<b>Ipsum<li>Dolor</ul></ul></ul><span></ul>Sit<span>Sit<span><div>Amet' );
+$p = new WP_HTML_Processor( '<ul><li><b>1<li></ul>' );
 // echo $p->parse();
 
-// die();
 $p->first_child();
-var_dump($p->get_tag());
-$p->first_child();
-var_dump($p->get_tag());
-// $p->next_sibling();
-// var_dump($p->get_tag());
-// $p->next_sibling();
-var_dump($p->inner_html());
-$p->inner_html('<i>Hello</i>');
-var_dump($p->get_updated_html());
+var_dump($p->get_tag()); // UL
 
-// var_dump($p->outer_html());
-// $p->outer_html('<div>Hello</div>');
-// var_dump($p->get_updated_html());
+$p->first_child();
+var_dump($p->get_tag()); // LI
+
+var_dump($p->inner_html()); // <b>1</b>
+
+$p->inner_html('<i>Hello</i>');
+var_dump($p->get_updated_html()); // <ul><li><i>Hello</i></b></li><li></ul>
+
+var_dump($p->outer_html());
+$p->outer_html('<div>Hello</div>');
+var_dump($p->get_updated_html());
 
 die();
 
