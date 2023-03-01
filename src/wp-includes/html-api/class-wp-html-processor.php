@@ -92,14 +92,14 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 	/**
 	 * Sets a bookmark for the parser
 	 * 
-	 * @TODO: make $protected purely internal
+	 * @TODO: make $pinned purely internal
 	 * @see WP_HTML_Tag_Processor::set_bookmark()
 	 * @param mixed $name Name of the bookmark
-	 * @param mixed $protected Protects a bookmark from being released by release_bookmark()
+	 * @param mixed $pinned Protects a bookmark from being released by release_bookmark()
 	 *                         Useful for outer_html().
 	 * @return bool Whether the bookmark was set
 	 */
-	public function set_bookmark( $name, $protected = false ) {
+	public function set_bookmark( $name, $pinned = false ) {
 		if ( ! parent::set_bookmark($name) ) {
 			unset($this->parser_bookmarks[$name]);
 			return false;
@@ -122,9 +122,14 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 		}
 
 		$this->parser_bookmarks[$name] = array(
-			'protected' => $protected,
 			'open_elements' => $open_elements,
 			'active_formatting_elements' => $active_formatting_elements,
+
+			// Pinned bookmarks are protected from release_bookmark()
+			// Also, their position won't change.
+			'pinned' => $pinned,
+			'start' => $this->bookmarks[$name]->start,
+			'end' => $this->bookmarks[$name]->end,
 		);
 		return true;
 	}
@@ -142,7 +147,8 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 		if ( !isset($this->parser_bookmarks[$bookmark]) ){
 			return false;
 		}
-		if( !$force && $this->parser_bookmarks[$bookmark]['protected']) {
+		// Pinned bookmarks are protected from release_bookmark()
+		if( !$force && $this->parser_bookmarks[$bookmark]['pinned']) {
 			return false;
 		}
 		unset($this->parser_bookmarks[$bookmark]);
@@ -150,16 +156,39 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 	}
 
 	public function seek($bookmark_name) {
+		if ( !isset($this->parser_bookmarks[$bookmark_name]) ){
+			return false;
+		}
+		// Pinned bookmarks position won't change when applying
+		// lexical updates
+		if($this->parser_bookmarks[$bookmark_name]['pinned']) {
+			$this->bookmarks[$bookmark_name]->start = $this->parser_bookmarks[$bookmark_name]['start'];
+			$this->bookmarks[$bookmark_name]->end = $this->parser_bookmarks[$bookmark_name]['end'];
+		}
 		if(!$this->seek_without_consuming($bookmark_name)) {
 			return false;
 		}
 
 		$b = $this->parser_bookmarks[$bookmark_name];
-		// $this->tag_ends_at = $this->bytes_already_parsed - 1;
+		$this->current_token = null;
 		$this->open_elements = $b['open_elements'];
 		$this->active_formatting_elements = $b['active_formatting_elements'];
-
 		return $this->next_tag();
+	}
+
+	private function print_open_elements() {
+		echo "Open elements: ";
+		foreach($this->open_elements as $oe) {
+			echo $oe->tag . " > ";
+		}
+		echo "\n";
+	}
+	private function print_active_formatting_elements() {
+		echo "AFE: ";
+		foreach($this->active_formatting_elements as $afe) {
+			echo $afe->tag . " > ";
+		}
+		echo "\n";
 	}
 
 	public function depth() {
@@ -339,6 +368,7 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 			);
 			$this->flush_updates();
 
+			// var_dump($this->open_elements);
 			if(!$this->seek('internal_outer_html')) {
 				throw new Exception('Failed to seek to internal_outer_html bookmark');
 			}
@@ -449,7 +479,7 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 		 */
 		$text_start = $this->tag_ends_at + 1;
 		if (!parent::next_tag(array('tag_closers' => 'visit'))) {
-			// $this->process_text($text_start, strlen($this->html));
+			$this->process_text($text_start, strlen($this->html));
 
 			$this->is_closing_open_tags = true;
 			return $this->next_tag();
@@ -459,7 +489,7 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 		 * We found a tag! Let's process any text we may have found along the way.
 		 */
 		$current_tag_start = $this->tag_name_starts_at - ( $this->is_closing_tag ? 2 : 1 );
-		// $this->process_text($text_start, $current_tag_start);
+		$this->process_text($text_start, $current_tag_start);
 
 		$this->current_token = new WP_HTML_Tag_Token($this->get_tag());
 		$this->current_token_start = $current_tag_start;
