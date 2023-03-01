@@ -205,7 +205,7 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 
 	public function nth_child($n=1) {
 		if ( null === $this->tag_name_starts_at ) {
-			return $this->next_node();
+			return false;
 		}
 		if ( ! $this->set_bookmark('internal_nth_child') ) {
 			return false;
@@ -368,7 +368,6 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 			);
 			$this->flush_updates();
 
-			// var_dump($this->open_elements);
 			if(!$this->seek('internal_outer_html')) {
 				throw new Exception('Failed to seek to internal_outer_html bookmark');
 			}
@@ -837,13 +836,18 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 				case 'H4':
 				case 'H5':
 				case 'H6':
-					if ( ! $this->is_element_in_scope( array( 'H1', 'H2', 'H3', 'H4', 'H5', 'H6' ) ) ) {
+					if ( ! $this->is_element_in_scope( $this->current_token->tag, array( 'H1', 'H2', 'H3', 'H4', 'H5', 'H6' ) ) ) {
 						$this->parse_error();
 						$this->drop_current_tag_token();
 						return true;
 					}
 					$this->generate_implied_end_tags();
-					$this->pop_until_tag( array( 'H1', 'H2', 'H3', 'H4', 'H5', 'H6' ), false );
+					if($this->current_token->tag === $this->current_node()->tag) {
+						$this->pop_until_tag( $this->current_token->tag, false );
+					} else {
+						$this->parse_error();
+						$this->pop_until_tag( array( 'H1', 'H2', 'H3', 'H4', 'H5', 'H6' ), true );
+					}
 					break;
 				case 'A':
 				case 'B':
@@ -1546,3 +1550,4 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 	}
 
 }
+

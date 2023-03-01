@@ -116,10 +116,60 @@ class Tests_HtmlApi_wpHtmlProcessor extends WP_UnitTestCase
 		$p->next_node();
 		$p->nth_child(2);
 		$p->outer_html('<strong><p>99</p></strong>');
-		$this->assertEquals( '<ul><li>1</li><strong><p>99</p></strong><li>3</ul>', $p->get_updated_html() );
+		$this->assertEquals( '<strong><p>99</p></strong>', $p->outer_html() );
+		// We're supposed to get the same result twice
+		// Confirm the processor has rewinded the pointer:
 		$this->assertEquals( '<strong><p>99</p></strong>', $p->outer_html() );
 		$this->assertEquals( '<ul><li>1</li><strong><p>99</p></strong><li>3</ul>', $p->get_updated_html() );
-		$this->assertEquals( '<ul><li>1</li><strong><p>99</p></strong><li>3</ul>', $p->get_updated_html() );
+	}
+
+	public function test_complex_use_case()
+	{
+		$p = new WP_HTML_Processor(<<<'HTML'
+	<section>
+		<p>Text
+		<h4 id=presentational-markup>
+			<span class=secno>1.11.1</span> 
+			Presentational markup
+			<a href=#presentational-markup class=self-link>Link</a>
+			<p>Text
+			<p>Text
+		<h3>Another header
+HTML);
+		/*
+		The DOM looks like this:
+		SECTION
+			P
+			H4
+				SPAN
+				A
+				P
+				P
+			H3
+		*/
+		$p->next_node();
+		$p->nth_child(3);
+		$this->assertEquals('H3', $p->get_tag());
+	}
+
+	public function test_complex_use_case2()
+	{
+		$p = new WP_HTML_Processor(<<<'HTML'
+	<section>
+		<h4 id=presentational-markup>
+			<span class=secno>1.11.1</span> 
+			Presentational markup
+			<a href=#presentational-markup class=self-link>Link</a>
+			<p>Text
+			<p>Text
+		<h3>Another header
+HTML);
+		$p->next_node();
+		$p->nth_child(1);
+		$p->outer_html('<img />');
+		$this->assertEquals('IMG', $p->get_tag());
+		$this->assertEquals('	<section>
+		<img /><h3>Another header', $p->get_updated_html());
 	}
 
 }
