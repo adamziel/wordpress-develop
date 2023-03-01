@@ -1462,6 +1462,11 @@ class WP_HTML_Tag_Processor {
 			$this->bytes_already_copied = $diff->end;
 		}
 
+		if ( $diff->end < $this->bytes_already_parsed ) {
+			$this->output_buffer .= substr( $this->html, $diff->end, $this->bytes_already_parsed - $diff->end );
+			$this->bytes_already_copied = $this->bytes_already_parsed;
+		}
+
 		/*
 		 * Adjust bookmark locations to account for how the text
 		 * replacements adjust offsets in the input document.
@@ -2118,13 +2123,21 @@ class WP_HTML_Tag_Processor {
 			return $this->output_buffer . substr( $this->html, $this->bytes_already_copied );
 		}
 
-		// Apply the updates, rewind to before the current tag, and reparse the attributes.
-		$content_up_to_opened_tag_name = $this->output_buffer . substr(
-			$this->html,
-			$this->bytes_already_copied,
-			$this->tag_name_starts_at + $this->tag_name_length - $this->bytes_already_copied
-		);
+		try {
+			$this->release_bookmark('internal_get_updated_html');
+			if(!$this->set_bookmark('internal_get_updated_html')) {
+				return false;
+			}
+			$this->flush_updates();
+			$this->seek('internal_get_updated_html');
+		} finally {
+			$this->release_bookmark('internal_get_updated_html');
+		}
 
+		return $this->html;
+	}
+
+	protected function flush_updates() {
 		/*
 		 * 1. Apply the edits by flushing them to the output buffer and updating the copied byte count.
 		 *
@@ -2138,27 +2151,7 @@ class WP_HTML_Tag_Processor {
 		 * 2. Replace the original HTML with the now-updated HTML so that it's possible to
 		 *    seek to a previous location and have a consistent view of the updated document.
 		 */
-		$this->html                 = $this->output_buffer . substr( $this->html, $this->bytes_already_copied );
-		$this->output_buffer        = $content_up_to_opened_tag_name;
-		$this->bytes_already_copied = strlen( $this->output_buffer );
-
-		/*
-		 * 3. Point this tag processor at the original tag opener and consume it
-		 *
-		 * At this point the internal cursor points to the end of the tag name.
-		 * Rewind before the tag name starts so that it's as if the cursor didn't
-		 * move; a call to `next_tag()` will reparse the recently-updated attributes
-		 * and additional calls to modify the attributes will apply at this same
-		 * location.
-		 *
-		 * <p>Previous HTML<em>More HTML</em></p>
-		 *                 ^  | back up by the length of the tag name plus the opening <
-		 *                 \<-/ back up by strlen("em") + 1 ==> 3
-		 */
-		$this->bytes_already_parsed = strlen( $content_up_to_opened_tag_name ) - $this->tag_name_length - 1;
-		$this->next_tag();
-
-		return $this->html;
+		$this->html = $this->output_buffer . substr( $this->html, $this->bytes_already_copied );
 	}
 
 	/**

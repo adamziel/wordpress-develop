@@ -44,7 +44,7 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 	/**
 	 * @var WP_HTML_Tag_Token[]
 	 */
-	private $active_formatting_elements = array();
+	public $active_formatting_elements = array();
 
 	private $element_bookmark_idx = 0;
 	private $current_token;
@@ -89,27 +89,52 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 	}
 
 	private $parser_bookmarks = array();
-	public function set_bookmark( $name ) {
+	/**
+	 * Sets a bookmark for the parser
+	 * 
+	 * @TODO: make $protected purely internal
+	 * @see WP_HTML_Tag_Processor::set_bookmark()
+	 * @param mixed $name Name of the bookmark
+	 * @param mixed $protected Protects a bookmark from being released by release_bookmark()
+	 *                         Useful for outer_html().
+	 * @return bool Whether the bookmark was set
+	 */
+	public function set_bookmark( $name, $protected = false ) {
 		if ( ! parent::set_bookmark($name) ) {
+			unset($this->parser_bookmarks[$name]);
 			return false;
 		}
 		$this->parser_bookmarks[$name] = array(
+			'protected' => $protected,
 			'open_elements' => $this->open_elements,
 			'active_formatting_elements' => $this->active_formatting_elements,
 		);
 		return true;
 	}
 
-	public function release_bookmark( $bookmark ) {
-		if ( ! parent::release_bookmark($bookmark) ) {
+	/**
+	 * Releases a bookmark for the parser
+	 * 
+	 * @TODO: make $force purely internal
+	 * @see WP_HTML_Tag_Processor::set_bookmark()
+	 * @param mixed $name Name of the bookmark
+	 * @param mixed $force Whether to release the bookmark even if it's protected
+	 * @return bool Whether the bookmark was set
+	 */
+	public function release_bookmark( $bookmark, $force = false ) {
+		if ( !isset($this->parser_bookmarks[$bookmark]) ){
+			return false;
+		}
+		if( !$force && $this->parser_bookmarks[$bookmark]['protected']) {
 			return false;
 		}
 		unset($this->parser_bookmarks[$bookmark]);
-		return true;
+		return parent::release_bookmark($bookmark);
 	}
 
 	public function seek($bookmark) {
 		if ( ! parent::seek($bookmark) ) {
+			unset($this->parser_bookmarks[$bookmark]);
 			return false;
 		}
 		$bookmark = $this->parser_bookmarks[$bookmark];
@@ -123,7 +148,9 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 
 	public function depth() {
 		// -1 because the root HTML element is not counted
-		return count($this->open_elements) - 1;
+		return count($this->open_elements) - 1 + (
+			$this->is_tag_closer() ? 1 : 0
+		);
 	}
 
 	public function first_child()
@@ -153,6 +180,10 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 				if ($this->depth() <= $depth) {
 					$this->seek('internal_nth_child');
 					return false;
+				}
+
+				if ($this->depth() !== $depth + 1) {
+					continue;
 				}
 
 				++$matched;
@@ -189,7 +220,9 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 				}
 
 				if ($this->depth() < $depth) {
-					$this->seek('internal_nth_sibling');
+					if(!$this->seek('internal_nth_sibling')) {
+						throw new Exception('Failed to seek to internal_nth_sibling');
+					}
 					return false;
 				} else if ($this->depth() > $depth) {
 					continue;
@@ -220,7 +253,6 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 		if(!$this->set_bookmark('internal_inner_html')) {
 			return false;
 		}
-
 		try {
 			if(!$this->balancing_closer()) {
 				return false;
@@ -228,25 +260,33 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 			$tag_closer_starts_at = $this->tag_name_starts_at - 2;
 
 			// Return to the initial cursor position
-			$this->seek('internal_inner_html');
+			// @TODO: Don't seek if balancing_closer didn't update
+			//        the HTML
+			if(!$this->seek('internal_inner_html')) {
+				throw new Exception('Failed to seek to internal_inner_html bookmark');
+			}
 
 			$content_starts_at = $this->tag_ends_at + 1;
 			if(null === $html) {
 				// Get the inner HTML
 				return substr($this->html, $content_starts_at, $tag_closer_starts_at - $content_starts_at);
-			} else {
-				// Set the inner HTML
-				$this->add_lexical_update(
-					new WP_HTML_Text_Replacement(
-						$content_starts_at,
-						$tag_closer_starts_at,
-						$html
-					)
-				);
-				// Flush lexical updates
-				$this->seek('internal_inner_html');
-				return true;
 			}
+	
+			// Set the inner HTML
+			$this->add_lexical_update(
+				new WP_HTML_Text_Replacement(
+					$content_starts_at,
+					$tag_closer_starts_at,
+					$html
+				)
+			);
+			$this->flush_updates();
+
+			// Flush lexical updates
+			if(!$this->seek('internal_inner_html')) {
+				throw new Exception('Failed to seek to internal_inner_html bookmark');
+			}
+			return true;
 		} finally {
 			$this->release_bookmark('internal_inner_html');
 		}
@@ -257,7 +297,7 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 			return null;
 		}
 
-		if(!$this->set_bookmark('internal_outer_html')) {
+		if(!$this->set_bookmark('internal_outer_html', true)) {
 			return false;
 		}
 		try {
@@ -267,39 +307,39 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 			$tag_closer_ends_at = $this->tag_ends_at;
 
 			// Return to the initial cursor position
-			$this->seek('internal_outer_html');
+			// @TODO: Don't seek if balancing_closer didn't update
+			//        the HTML
+			if(!$this->seek('internal_outer_html')) {
+				throw new Exception('Failed to seek to internal_outer_html bookmark');
+			}
 			$tag_starts_at = $this->tag_name_starts_at - 1;
 
 			if(null === $html) {
 				// Get the inner HTML
 				return substr($this->html, $tag_starts_at, $tag_closer_ends_at + 1 - $tag_starts_at);
-			} else {
-				// Hack to prevent invalidating the bookmark upon replacing the outer html
-				--$this->bookmarks['internal_outer_html']->start;
-				$this->bookmarks['internal_outer_html']->end = $this->bookmarks['internal_outer_html']->start;
-				$last_open_element = array_pop($this->parser_bookmarks['internal_outer_html']['open_elements']);
-				if(end($this->parser_bookmarks['internal_outer_html']['active_formatting_elements']) === $last_open_element) {
-					array_pop($this->parser_bookmarks['internal_outer_html']['active_formatting_elements']);
-				}
-
-				// Set the inner HTML
-				$this->add_lexical_update(
-					new WP_HTML_Text_Replacement(
-						$tag_starts_at,
-						$tag_closer_ends_at + 1,
-						$html
-					)
-				);
-				// Flush lexical updates
-				$this->get_updated_html();
-
-				// Hack to prevent invalidating the bookmark upon replacing the outer html
-				++$this->bookmarks['internal_outer_html']->start;
-				$this->bookmarks['internal_outer_html']->end = $this->bookmarks['internal_outer_html']->start;
-
-				$this->seek('internal_outer_html');
-				return true;
 			}
+
+			// Set the inner HTML
+			$this->add_lexical_update(
+				new WP_HTML_Text_Replacement(
+					$tag_starts_at,
+					$tag_closer_ends_at + 1,
+					$html
+				)
+			);
+			$this->flush_updates();
+
+			if(!$this->seek('internal_outer_html')) {
+				throw new Exception('Failed to seek to internal_outer_html bookmark');
+			}
+
+			// Adjust open elements and active formatting elements
+			$last_open_element = array_pop($this->open_elements);
+			if(end($this->active_formatting_elements) === $last_open_element) {
+				array_pop($this->active_formatting_elements);
+			}
+
+			return true;
 		} finally {
 			$this->release_bookmark('internal_outer_html');
 		}
@@ -319,9 +359,8 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 			while($this->process_next_tag_token()) {
 				if(
 					// Current element popped off the stack
-					$this->depth() < $depth 
-					// Stack is the same size, but the current element was popped
-					|| ($this->depth() === $depth && end($this->open_elements) !== $token)
+					$this->depth() <= $depth 
+					&& end($this->open_elements) !== $token
 				) {
 					/**
 					 * The entire tag contents have been parsed,
@@ -332,7 +371,9 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 				}
 			}
 
-			$this->seek('internal_balancing_closer');
+			if(!$this->seek('internal_balancing_closer')){
+				throw new Exception('Failed to seek to internal_balancing_closer bookmark');
+			}
 
 			while($this->process_next_tag_token()) {
 				if(
@@ -1042,14 +1083,17 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 	private function insert_tag_closer_before_current_token( $tag ) {
 		// Aesthetic choice for now.
 		// @TODO: consider preserving the case of the opening tag
-		$tag = strtolower($tag);
 		$this->add_lexical_update(
 			new WP_HTML_Text_Replacement(
 				$this->current_token_start,
 				$this->current_token_start,
-				"</$tag>"
+				"</".strtolower($tag).">"
 			)
 		);
+		$last_afe = end($this->active_formatting_elements);
+		if($last_afe && $tag === $last_afe->tag) {
+			array_pop($this->active_formatting_elements);
+		}
 	}
 
 	private function generate_implied_end_tags( $options = null ) {
@@ -1454,26 +1498,41 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 }
 
 
-// $p = new WP_HTML_Processor( '<p>1<script>HTML Standard</script>3<b>4' );
+// $p = new WP_HTML_Processor( '<p><b>4' );
+// $p->next_tag();
+// $p->set_attribute('a', 'b');
+// echo $p . "\n";
+// $p->next_tag();
+// echo $p . '';
+
+// die();
 // echo $p->parse();
 
-$p = new WP_HTML_Processor( '<ul><li><b>1<li></ul>' );
+$p = new WP_HTML_Processor( '<ul><li a1="1"><b><u><i>1<li a2="2"></ul>' );
 // echo $p->parse();
 
 $p->first_child();
 var_dump($p->get_tag()); // UL
 
-$p->first_child();
+$p->nth_child(2);
 var_dump($p->get_tag()); // LI
+var_dump($p->get_updated_html());
+var_dump($p->get_updated_html());
 
 var_dump($p->inner_html()); // <b>1</b>
 
 $p->inner_html('<i>Hello</i>');
 var_dump($p->get_updated_html()); // <ul><li><i>Hello</i></b></li><li></ul>
 
+// var_dump($p->outer_html());
 var_dump($p->outer_html());
+var_dump($p->get_attribute_names_with_prefix(''));
 $p->outer_html('<div>Hello</div>');
-var_dump($p->get_updated_html());
+// var_dump($p->get_attribute_names_with_prefix(''));
+// var_dump($p->get_tag());
+// var_dump($p->outer_html());
+// var_dump($p->get_tag());
+// var_dump($p->get_updated_html());
 
 die();
 
