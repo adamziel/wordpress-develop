@@ -221,10 +221,6 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 					return false;
 				}
 
-				if ($this->is_tag_closer()) {
-					continue;
-				}
-
 				if ($this->depth() <= $depth) {
 					$this->seek('internal_nth_child');
 					return false;
@@ -261,10 +257,6 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 			do {
 				if (!$this->next_node()) {
 					return false;
-				}
-
-				if ($this->is_tag_closer()) {
-					continue;
 				}
 
 				if ($this->depth() > $depth) {
