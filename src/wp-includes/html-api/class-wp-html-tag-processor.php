@@ -331,7 +331,7 @@ class WP_HTML_Tag_Processor {
 	 * @since 6.2.0
 	 * @var string
 	 */
-	private $output_buffer = '';
+	protected $output_buffer = '';
 
 	/**
 	 * How many bytes from the original HTML document have been read and parsed.
@@ -360,7 +360,7 @@ class WP_HTML_Tag_Processor {
 	 * @since 6.2.0
 	 * @var int
 	 */
-	private $bytes_already_copied = 0;
+	protected $bytes_already_copied = 0;
 
 	/**
 	 * Byte offset in input document where current tag name starts.
@@ -1258,9 +1258,8 @@ class WP_HTML_Tag_Processor {
 	 * @return void
 	 */
 	private function after_tag() {
-		$this->class_name_updates_to_attribute_updates();
-		$this->attribute_updates_to_lexical_updates();
-		$this->apply_lexical_updates();
+		// Apply lexical updates
+		$this->get_updated_html();
 		$this->tag_name_starts_at = null;
 		$this->tag_name_length    = null;
 		$this->tag_ends_at        = null;
@@ -2334,5 +2333,37 @@ class WP_HTML_Tag_Processor {
 		}
 
 		return true;
+	}
+
+	protected function tag_starts_at() {
+		$tag_starts_at = $this->tag_name_starts_at - 1;
+
+		if ( $this->is_closing_tag && ! $this->is_void_tag() ) {
+			$tag_starts_at--;
+		}
+
+		return $tag_starts_at;
+	}
+
+	protected function is_void_tag() {
+		switch ( $this->get_tag() ) {
+			case 'AREA':
+			case 'BASE':
+			case 'BR':
+			case 'COL':
+			case 'EMBED':
+			case 'HR':
+			case 'IMG':
+			case 'INPUT':
+			case 'LINK':
+			case 'META':
+			case 'PARAM':
+			case 'SOURCE':
+			case 'TRACK':
+			case 'WBR':	
+				return true;
+		}
+
+		return false;
 	}
 }

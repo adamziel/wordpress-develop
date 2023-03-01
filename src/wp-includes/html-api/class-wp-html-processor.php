@@ -105,20 +105,23 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 			return false;
 		}
 
+		$open_elements = $this->open_elements;
+		$active_formatting_elements = $this->active_formatting_elements;
+
 		/**
 		 * seek() will rewing before the current tag
 		 * and consume it again. We need to remove the
 		 * top element from element stacks to avoid
-		 * to duplicates.
+		 * duplicates.
 		 */
-		$open_elements = $this->open_elements;
-		if(end($open_elements) === $this->current_token) {
-			array_pop($open_elements);
-		}
+		if (!$this->is_tag_closer() && !$this->is_void_tag()) {
+			if (end($open_elements) === $this->current_token) {
+				array_pop($open_elements);
+			}
 
-		$active_formatting_elements = $this->active_formatting_elements;
-		if(end($active_formatting_elements) === $this->current_token) {
-			array_pop($active_formatting_elements);
+			if (end($active_formatting_elements) === $this->current_token) {
+				array_pop($active_formatting_elements);
+			}
 		}
 
 		$this->parser_bookmarks[$name] = array(
@@ -194,7 +197,7 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 	public function depth() {
 		// -1 because the root HTML element is not counted
 		return count($this->open_elements) - 1 + (
-			$this->is_tag_closer() ? 1 : 0
+			$this->is_tag_closer() || $this->is_void_tag() ? 1 : 0
 		);
 	}
 
@@ -284,10 +287,14 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 	}
 
 	public function inner_html($html=null) {
+		$x = 0;
+		$x = 0;
 		if ( null === $this->tag_name_starts_at ) {
 			return null;
 		}
 
+		$x = 0;
+		$this->get_updated_html();
 		if(!$this->set_bookmark('internal_inner_html')) {
 			return false;
 		}
@@ -307,7 +314,7 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 			$content_starts_at = $this->tag_ends_at + 1;
 			if(null === $html) {
 				// Get the inner HTML
-				return substr($this->html, $content_starts_at, $tag_closer_starts_at - $content_starts_at);
+				return trim(substr($this->html, $content_starts_at, $tag_closer_starts_at - $content_starts_at));
 			}
 	
 			// Set the inner HTML
@@ -351,7 +358,7 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 			if(!$this->seek('internal_outer_html')) {
 				throw new Exception('Failed to seek to internal_outer_html bookmark');
 			}
-			$tag_starts_at = $this->tag_name_starts_at - 1;
+			$tag_starts_at = $this->tag_starts_at();
 
 			if(null === $html) {
 				// Get the inner HTML
@@ -487,7 +494,7 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 		/**
 		 * We found a tag! Let's process any text we may have found along the way.
 		 */
-		$current_tag_start = $this->tag_name_starts_at - ( $this->is_closing_tag ? 2 : 1 );
+		$current_tag_start = $this->tag_starts_at();
 		$this->process_text($text_start, $current_tag_start);
 
 		$this->current_token = new WP_HTML_Tag_Token($this->get_tag());
@@ -675,9 +682,6 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 					$this->insert_element( $this->current_token );
 					$this->active_formatting_elements[] = $this->MARKER;
 					break;
-				case 'TABLE':
-					$this->insert_element( $this->current_token );
-					break;
 
 				// Void elements.
 				// Some require reconstructing the active formatting elements.
@@ -827,7 +831,14 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 						$this->drop_current_tag_token();
 						return true;
 					}
-					$this->generate_implied_end_tags();
+					$this->generate_implied_end_tags(
+						array(
+							'except_for' => array( $this->current_token->tag ),
+						)
+					);
+					if ( $this->current_node()->tag !== $this->current_token->tag ) {
+						$this->parse_error();
+					}
 					$this->pop_until_tag( $this->current_token->tag, false );
 					break;
 				case 'H1':
@@ -882,23 +893,9 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 					$this->clear_active_formatting_elements_up_to_last_marker();
 					break;
 
-				/*
-				 * @divergence from spec:
-				 * Close all the open tags when a table-related
-				 * tag closer is encountered
-				 */
-				case 'TBODY':
-				case 'TFOOT':
-				case 'THEAD':
-				case 'TD':
-				case 'TH':
-				case 'TR':
-				case 'TABLE':
-					$this->pop_until_tag( $this->current_token->tag, false );
-					break;
-
 				case 'BR':
 					// This should never happen since Tag_Processor corrects that
+					throw new Exception( 'BR tag closer should never be encountered' );
 				default:
 					$this->process_any_other_end_tag( $this->current_token );
 					break;
@@ -929,7 +926,8 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 						'except_for' => array( $tag ),
 					)
 				);
-				if ( $node->tag !== $tag ) {
+				// @divergence – should compare nodes, not tags
+				if ( $node->tag !== $token->tag ) {
 					$this->parse_error();
 				}
 				$this->pop_until_node( $node );
@@ -1550,4 +1548,3 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 	}
 
 }
-
