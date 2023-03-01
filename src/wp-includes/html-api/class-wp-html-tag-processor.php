@@ -1486,7 +1486,7 @@ class WP_HTML_Tag_Processor {
 					break;
 				}
 
-				if ( $bookmark->start >= $diff->start && $bookmark->end < $diff->end ) {
+				if ( $bookmark->start > $diff->start && $bookmark->end < $diff->end ) {
 					$this->release_bookmark( $bookmark_name );
 					continue 2;
 				}
@@ -1549,6 +1549,13 @@ class WP_HTML_Tag_Processor {
 	 * @return bool Whether the internal cursor was successfully moved to the bookmark's location.
 	 */
 	public function seek( $bookmark_name ) {
+		if(!$this->seek_without_consuming($bookmark_name)) {
+			return false;
+		}
+		return $this->next_tag( array( 'tag_closers' => 'visit' ) );
+	}
+
+	protected function seek_without_consuming($bookmark_name) {
 		if ( ! array_key_exists( $bookmark_name, $this->bookmarks ) ) {
 			_doing_it_wrong(
 				__METHOD__,
@@ -1574,7 +1581,7 @@ class WP_HTML_Tag_Processor {
 		$this->bytes_already_parsed = $this->bookmarks[ $bookmark_name ]->start;
 		$this->bytes_already_copied = $this->bytes_already_parsed;
 		$this->output_buffer        = substr( $this->html, 0, $this->bytes_already_copied );
-		return $this->next_tag( array( 'tag_closers' => 'visit' ) );
+		return true;
 	}
 
 	/**

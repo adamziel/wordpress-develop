@@ -66,7 +66,7 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 		// echo($this->html);
 		echo("\n");
 		$i = 0;
-		while ($this->process_next_tag_token()) {
+		while ($this->next_tag()) {
 			// ... twiddle thumbs ...
 			if(++$i % 10000 === 0)
 			{
@@ -104,10 +104,27 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 			unset($this->parser_bookmarks[$name]);
 			return false;
 		}
+
+		/**
+		 * seek() will rewing before the current tag
+		 * and consume it again. We need to remove the
+		 * top element from element stacks to avoid
+		 * to duplicates.
+		 */
+		$open_elements = $this->open_elements;
+		if(end($open_elements) === $this->current_token) {
+			array_pop($open_elements);
+		}
+
+		$active_formatting_elements = $this->active_formatting_elements;
+		if(end($active_formatting_elements) === $this->current_token) {
+			array_pop($active_formatting_elements);
+		}
+
 		$this->parser_bookmarks[$name] = array(
 			'protected' => $protected,
-			'open_elements' => $this->open_elements,
-			'active_formatting_elements' => $this->active_formatting_elements,
+			'open_elements' => $open_elements,
+			'active_formatting_elements' => $active_formatting_elements,
 		);
 		return true;
 	}
@@ -132,18 +149,17 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 		return parent::release_bookmark($bookmark);
 	}
 
-	public function seek($bookmark) {
-		if ( ! parent::seek($bookmark) ) {
-			unset($this->parser_bookmarks[$bookmark]);
+	public function seek($bookmark_name) {
+		if(!$this->seek_without_consuming($bookmark_name)) {
 			return false;
 		}
-		$bookmark = $this->parser_bookmarks[$bookmark];
-		$this->open_elements = $bookmark['open_elements'];
-		$this->active_formatting_elements = $bookmark['active_formatting_elements'];
-		$this->current_token = end($bookmark['open_elements']);
-		$this->current_token_start = $this->tag_name_starts_at - ($this->is_tag_closer() ? 2 : 1);
-		$this->current_token_end = $this->tag_ends_at;
-		return true;
+
+		$b = $this->parser_bookmarks[$bookmark_name];
+		// $this->tag_ends_at = $this->bytes_already_parsed - 1;
+		$this->open_elements = $b['open_elements'];
+		$this->active_formatting_elements = $b['active_formatting_elements'];
+
+		return $this->next_tag();
 	}
 
 	public function depth() {
@@ -216,7 +232,11 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 				}
 
 				if ($this->is_tag_closer()) {
-					return false;
+					continue;
+				}
+
+				if ($this->depth() > $depth) {
+					continue;
 				}
 
 				if ($this->depth() < $depth) {
@@ -224,8 +244,6 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 						throw new Exception('Failed to seek to internal_nth_sibling');
 					}
 					return false;
-				} else if ($this->depth() > $depth) {
-					continue;
 				}
 
 				++$matched;
@@ -234,15 +252,6 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 		} finally {
 			$this->release_bookmark('internal_nth_sibling');
 		}
-	}
-
-	private function next_node() {
-		while ($this->process_next_tag_token()) {
-			if (!$this->is_tag_closer()) {
-				return true;
-			}
-		}
-		return false;
 	}
 
 	public function inner_html($html=null) {
@@ -297,6 +306,7 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 			return null;
 		}
 
+		$this->get_updated_html();
 		if(!$this->set_bookmark('internal_outer_html', true)) {
 			return false;
 		}
@@ -332,13 +342,7 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 			if(!$this->seek('internal_outer_html')) {
 				throw new Exception('Failed to seek to internal_outer_html bookmark');
 			}
-
-			// Adjust open elements and active formatting elements
-			$last_open_element = array_pop($this->open_elements);
-			if(end($this->active_formatting_elements) === $last_open_element) {
-				array_pop($this->active_formatting_elements);
-			}
-
+			
 			return true;
 		} finally {
 			$this->release_bookmark('internal_outer_html');
@@ -350,13 +354,18 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 		if($this->is_tag_closer()) {
 			return false;
 		}
+		/*
+		 * There might be tag closers buffered for insertion,
+		 * let's flush any updates we might have at this point.
+		 */
+		$this->get_updated_html();
 		if(!$this->set_bookmark('internal_balancing_closer')) {
 			return false;
 		}
 		try {
 			$depth = $this->depth();
 			$token = $this->current_token;
-			while($this->process_next_tag_token()) {
+			while($this->next_tag()) {
 				if(
 					// Current element popped off the stack
 					$this->depth() <= $depth 
@@ -375,7 +384,7 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 				throw new Exception('Failed to seek to internal_balancing_closer bookmark');
 			}
 
-			while($this->process_next_tag_token()) {
+			while($this->next_tag()) {
 				if(
 					// Current element popped off the stack
 					$this->depth() < $depth 
@@ -396,8 +405,19 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 		}
 	}
 
+	public function next_node() {
+		while ($this->next_tag()) {
+			// is_tag_closer can be NULL if `next_tag`
+			// didn't find a tag closer
+			if (false === $this->is_tag_closer()) {
+				return true;
+			}
+		}
+		return false;
+	}
+
 	private $is_closing_open_tags = false;
-	private function process_next_tag_token() {
+	public function next_tag($query = null) {
 		/*
 		 * We're done with the document but some tags
 		 * are still open. Let's close them one at a time.
@@ -417,7 +437,7 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 			$this->pop_open_element();
 			$this->get_updated_html();
 
-			$this->next_tag(array('tag_closers' => 'visit'));
+			parent::next_tag(array('tag_closers' => 'visit'));
 			$this->current_token = new WP_HTML_Tag_Token($this->get_tag());
 			$this->current_token_start = $this->tag_name_starts_at - 2;
 			$this->current_token_end = $this->tag_ends_at;
@@ -428,18 +448,18 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 		 * Go to the next tag and process any text was found along the way.
 		 */
 		$text_start = $this->tag_ends_at + 1;
-		if (!$this->next_tag(array('tag_closers' => 'visit'))) {
-			$this->process_text($text_start, strlen($this->html));
+		if (!parent::next_tag(array('tag_closers' => 'visit'))) {
+			// $this->process_text($text_start, strlen($this->html));
 
 			$this->is_closing_open_tags = true;
-			return $this->process_next_tag_token();
+			return $this->next_tag();
 		}
 
 		/**
 		 * We found a tag! Let's process any text we may have found along the way.
 		 */
 		$current_tag_start = $this->tag_name_starts_at - ( $this->is_closing_tag ? 2 : 1 );
-		$this->process_text($text_start, $current_tag_start);
+		// $this->process_text($text_start, $current_tag_start);
 
 		$this->current_token = new WP_HTML_Tag_Token($this->get_tag());
 		$this->current_token_start = $current_tag_start;
@@ -1496,84 +1516,3 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 	}
 
 }
-
-
-// $p = new WP_HTML_Processor( '<p><b>4' );
-// $p->next_tag();
-// $p->set_attribute('a', 'b');
-// echo $p . "\n";
-// $p->next_tag();
-// echo $p . '';
-
-// die();
-// echo $p->parse();
-
-$p = new WP_HTML_Processor( '<ul><li a1="1"><b><u><i>1<li a2="2"></ul>' );
-// echo $p->parse();
-
-$p->first_child();
-var_dump($p->get_tag()); // UL
-
-$p->nth_child(2);
-var_dump($p->get_tag()); // LI
-var_dump($p->get_updated_html());
-var_dump($p->get_updated_html());
-
-var_dump($p->inner_html()); // <b>1</b>
-
-$p->inner_html('<i>Hello</i>');
-var_dump($p->get_updated_html()); // <ul><li><i>Hello</i></b></li><li></ul>
-
-// var_dump($p->outer_html());
-var_dump($p->outer_html());
-var_dump($p->get_attribute_names_with_prefix(''));
-$p->outer_html('<div>Hello</div>');
-// var_dump($p->get_attribute_names_with_prefix(''));
-// var_dump($p->get_tag());
-// var_dump($p->outer_html());
-// var_dump($p->get_tag());
-// var_dump($p->get_updated_html());
-
-die();
-
-// $dir = realpath( __DIR__ . '/../../../index.html' );
-
-// $htmlspec = file_get_contents( $dir );
-// $p = new WP_HTML_Processor( $htmlspec );
-// $p->parse();
-
-// die();
-
-// $p = new WP_HTML_Processor( '<dd><dt>' );
-// $p->parse();
-// die();
-// $p = new WP_HTML_Processor( '<p>1<title>HTML Standard</title><meta content=#3c790a name=theme-color>3<b>4</b>5</p>' );
-// $p->parse();
-$p = new WP_HTML_Processor( '<p>1<table><tbody><tr><td>HTML</td><td>Standard</table></p><div>test</div>' );
-echo $p->parse();
-die();
-
-
-$p = new WP_HTML_Processor( '<p>1<b>2<i>3</b>4</i>5</p>' );
-$p->parse();
-
-$p = new WP_HTML_Processor( '<div>1<span>2</div>3</span>4' );
-$p->parse();
-
-$p = new WP_HTML_Processor( '<ul><li>1<li>2<li>3<li>Lorem<b>Ipsum<li>Dolor</ul></ul></ul><span></ul>Sit<span>Sit<span><div>Amet' );
-$p->parse();
-
-// $p = new WP_HTML_Processor( '<b>
-// <div>
-//    <div></div>
-//    </b>
-//  </div>
-// </b>' );
-// $p->parse();
-
-
-$p = new WP_HTML_Processor( '<p><b class=x><b class=x><b><b class=x><b class=x><b><b class=x><b class=x><b><b class=x><b class=x><b>X
-<p>X
-<p><b><b class=x><b>X
-<p></b></b></b></b></b></b>Xy' );
-$p->parse();
