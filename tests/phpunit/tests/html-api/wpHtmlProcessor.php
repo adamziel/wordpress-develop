@@ -23,6 +23,19 @@ class Tests_HtmlApi_wpHtmlProcessor extends WP_UnitTestCase
 		);
 	}
 
+	public function test_closes_tags()
+	{
+		$p = new WP_HTML_Processor('<ul><li><li></ul>');
+		$p->next_node();
+		$p->next_node();
+		$p->next_node();
+		$p->next_node();
+		$this->assertEquals(
+			'<ul><li></li><li></li></ul>',
+			$p->get_updated_html()
+		);
+	}
+
 	// public function test_next_tag_throws()
 	// {
 	// 	$this->expectException(LogicException::class);

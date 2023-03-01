@@ -2131,11 +2131,12 @@ class WP_HTML_Tag_Processor {
 
 		try {
 			$this->release_bookmark('internal_get_updated_html');
-			if(!$this->set_bookmark('internal_get_updated_html')) {
-				return false;
+			if($this->set_bookmark('internal_get_updated_html')) {
+				$this->flush_updates();
+				$this->seek('internal_get_updated_html');
+			} else {
+				$this->flush_updates();
 			}
-			$this->flush_updates();
-			$this->seek('internal_get_updated_html');
 		} finally {
 			$this->release_bookmark('internal_get_updated_html');
 		}
