@@ -61,7 +61,7 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 		);
 	}
 
-	public function parse() {
+	public function benchmark() {
 		echo("HTML before main loop:\n");
 		// echo($this->html);
 		echo("\n");
@@ -70,6 +70,11 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 			// ... twiddle thumbs ...
 			if(++$i % 10000 === 0)
 			{
+				echo " Open elems: ";
+				foreach($this->open_elements as $elem){
+					echo $elem->tag . " ";
+				}
+				echo "\n";
 				echo $this->get_tag()." oe: " . count($this->open_elements) . " ";
 				echo "afe: " . count($this->active_formatting_elements) . " \n";
 				echo "Peak mem:" . round(memory_get_peak_usage(true) / 1024 / 1024, 2) . "MB\n";
@@ -214,28 +219,24 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 			return false;
 		}
 		$depth = $this->depth();
-		$matched = 0;
 		try {
-			do {
-				if (!$this->next_node()) {
-					return false;
-				}
+			if (!$this->next_node()) {
+				return false;
+			}
 
-				if ($this->depth() <= $depth) {
-					$this->seek('internal_nth_child');
-					return false;
-				}
-
-				if ($this->depth() !== $depth + 1) {
-					continue;
-				}
-
-				++$matched;
-			} while ($matched < $n);
-			return true;
+			if ($this->depth() !== $depth + 1) {
+				$this->seek('internal_nth_child');
+				return false;
+			}
 		} finally {
 			$this->release_bookmark('internal_nth_child');
 		}
+
+		if($n === 1) {
+			return true;
+		}
+
+		return $this->nth_sibling($n - 1);
 	}
 
 	public function next_sibling()
@@ -289,7 +290,7 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 		}
 		try {
 			$start = $this->tag_ends_at + 1;
-			$end_indices = $this->find_current_tag_contents_end();
+			$end_indices = $this->matching_closer();
 
 			if(null === $html) {
 				// Get the inner HTML
@@ -326,7 +327,7 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 		}
 		try {
 			$start = $this->tag_starts_at();
-			$end_indices = $this->find_current_tag_contents_end();
+			$end_indices = $this->matching_closer();
 
 			if(null === $html) {
 				// Get the inner HTML
@@ -352,7 +353,7 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 		}
 	}
 
-	public function find_current_tag_contents_end() {
+	private function matching_closer() {
 		if($this->is_tag_closer()) {
 			return false;
 		}
@@ -687,6 +688,20 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 					$this->insert_element( $this->current_token );
 					break;
 
+				// @divergence From the spec – close the unclosed table
+				//             elements.
+				// @TODO: implement "in table" insertion mode
+				case 'TD':
+				case 'TH':
+					if ($this->is_element_in_scope(array('TD', 'TH'))) {
+						$this->pop_until_tag(array('TD', 'TH'), false);
+					}
+					break;
+				case 'TR':
+					if ($this->is_element_in_scope(array('TR'))) {
+						$this->pop_until_tag('TR', false);
+					}
+					break;
 				// case 'XMP':
 				// case 'IFRAME':
 				// case 'NOEMBED':
@@ -834,6 +849,16 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 					}
 					$this->pop_until_tag( $this->current_token->tag, false );
 					$this->clear_active_formatting_elements_up_to_last_marker();
+					break;
+
+				// @divergence From the spec – close the unclosed table
+				//             elements.
+				// @TODO: implement "in table" insertion mode
+				case 'TABLE':
+				case 'THEAD':
+				case 'TBODY':
+				case 'TFOOT':
+					$this->pop_until_tag( 'TABLE', false );
 					break;
 
 				case 'BR':
@@ -1492,10 +1517,3 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 	}
 
 }
-
-// $p = new WP_HTML_Processor('<ul><li><li></ul id="1">');
-// $p->next_node();
-// $p->next_node();
-// $p->next_node();
-// $p->next_node();
-// var_dump($p->get_updated_html());
