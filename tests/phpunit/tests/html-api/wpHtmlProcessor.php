@@ -95,10 +95,10 @@ class Tests_HtmlApi_wpHtmlProcessor extends WP_UnitTestCase
 		$p = new WP_HTML_Processor('<ul><li>1<li>2<li>3</ul>');
 		$p->next_node();
 		$p->nth_child(2);
-		$this->assertEquals( '<li>2</li>', $p->outer_html() );
+		$this->assertEquals( '<li>2', $p->outer_html() );
 		// We're supposed to get the same result twice
 		// Confirm the processor has rewinded the pointer:
-		$this->assertEquals( '<li>2</li>', $p->outer_html() );
+		$this->assertEquals( '<li>2', $p->outer_html() );
 	}
 
 	public function test_set_inner_html()
@@ -121,7 +121,7 @@ class Tests_HtmlApi_wpHtmlProcessor extends WP_UnitTestCase
 		// We're supposed to get the same result twice
 		// Confirm the processor has rewinded the pointer:
 		$this->assertEquals( '<strong><p>99</p></strong>', $p->outer_html() );
-		$this->assertEquals( '<ul><li>1</li><strong><p>99</p></strong><li>3</ul>', $p->get_updated_html() );
+		$this->assertEquals( '<ul><li>1<strong><p>99</p></strong><li>3</ul>', $p->get_updated_html() );
 	}
 
 	public function test_complex_markup()
@@ -299,7 +299,7 @@ HTML);
 		$this->assertEquals('IMG', $p->get_tag());
 		$this->assertEquals('	<section>
 		<p>Text
-		</p><img /><h3>Another header', $p->get_updated_html());
+		<img /><h3>Another header', $p->get_updated_html());
 	}
 
 }

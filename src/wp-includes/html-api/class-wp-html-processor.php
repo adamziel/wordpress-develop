@@ -279,52 +279,38 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 	}
 
 	public function inner_html($html=null) {
-		$x = 0;
-		$x = 0;
 		if ( null === $this->tag_name_starts_at ) {
 			return null;
 		}
 
-		$x = 0;
-		$this->get_updated_html();
+		// $this->get_updated_html();
 		if(!$this->set_bookmark('internal_inner_html')) {
 			return false;
 		}
 		try {
-			if(!$this->balancing_closer()) {
-				return false;
-			}
-			$tag_closer_starts_at = $this->tag_name_starts_at - 2;
+			$start = $this->tag_ends_at + 1;
+			$end_indices = $this->find_current_tag_contents_end();
 
-			// Return to the initial cursor position
-			// @TODO: Don't seek if balancing_closer didn't update
-			//        the HTML
-			if(!$this->seek('internal_inner_html')) {
-				throw new Exception('Failed to seek to internal_inner_html bookmark');
-			}
-
-			$content_starts_at = $this->tag_ends_at + 1;
 			if(null === $html) {
 				// Get the inner HTML
-				return trim(substr($this->html, $content_starts_at, $tag_closer_starts_at - $content_starts_at));
+				return trim(substr($this->html, $start, $end_indices['closer_starts_at'] - $start));
 			}
 	
 			// Set the inner HTML
 			$this->add_lexical_update(
 				new WP_HTML_Text_Replacement(
-					$content_starts_at,
-					$tag_closer_starts_at,
+					$start,
+					$end_indices['closer_starts_at'],
 					$html
 				)
 			);
 			$this->get_updated_html();
 
-			// Flush lexical updates
+			return true;
+		} finally {
 			if(!$this->seek('internal_inner_html')) {
 				throw new Exception('Failed to seek to internal_inner_html bookmark');
 			}
-			return true;
-		} finally {
 			$this->release_bookmark('internal_inner_html');
 		}
 	}
@@ -339,98 +325,63 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 			return false;
 		}
 		try {
-			if(!$this->balancing_closer()) {
-				return false;
-			}
-			$tag_closer_ends_at = $this->tag_ends_at;
-
-			// Return to the initial cursor position
-			// @TODO: Don't seek if balancing_closer didn't update
-			//        the HTML
-			if(!$this->seek('internal_outer_html')) {
-				throw new Exception('Failed to seek to internal_outer_html bookmark');
-			}
-			$tag_starts_at = $this->tag_starts_at();
+			$start = $this->tag_starts_at();
+			$end_indices = $this->find_current_tag_contents_end();
 
 			if(null === $html) {
 				// Get the inner HTML
-				return substr($this->html, $tag_starts_at, $tag_closer_ends_at + 1 - $tag_starts_at);
+				return trim(substr($this->html, $start, $end_indices['closer_ends_at'] + 1 - $start));
 			}
 
 			// Set the inner HTML
 			$this->add_lexical_update(
 				new WP_HTML_Text_Replacement(
-					$tag_starts_at,
-					$tag_closer_ends_at + 1,
+					$start,
+					$end_indices['closer_ends_at'] + 1,
 					$html
 				)
 			);
 			$this->get_updated_html();
-
-			if(!$this->seek('internal_outer_html')) {
-				throw new Exception('Failed to seek to internal_outer_html bookmark');
-			}
 			
 			return true;
 		} finally {
+			if(!$this->seek('internal_outer_html')) {
+				throw new Exception('Failed to seek to internal_outer_html bookmark');
+			}
 			$this->release_bookmark('internal_outer_html');
 		}
 	}
 
-
-	public function balancing_closer() {
+	public function find_current_tag_contents_end() {
 		if($this->is_tag_closer()) {
 			return false;
 		}
-		/*
-		 * There might be tag closers buffered for insertion,
-		 * let's flush any updates we might have at this point.
-		 */
-		$this->get_updated_html();
-		if(!$this->set_bookmark('internal_balancing_closer')) {
-			return false;
-		}
-		try {
-			$depth = $this->depth();
-			$token = $this->current_token;
-			while($this->process_next_tag()) {
-				if(
-					// Current element popped off the stack
-					$this->depth() <= $depth 
-					&& end($this->open_elements) !== $token
-				) {
-					/**
-					 * The entire tag contents have been parsed,
-					 * let's seek to the opener and read the inner
-					 * HTML with missing tag closers added back in
-					 */
-					break;
+
+		$depth = $this->depth();
+		$token = $this->current_token;
+		while($this->process_next_tag()) {
+			if(
+				// Current element popped off the stack
+				$this->depth() <= $depth 
+				&& end($this->open_elements) !== $token
+			) {
+				if ($this->is_tag_closer() && $this->get_tag() === $token->tag) {
+					return array(
+						'closer_starts_at' => $this->tag_starts_at(),
+						'closer_ends_at' => $this->tag_ends_at,
+					);
+				} else {
+					return array(
+						'closer_starts_at' => $this->tag_starts_at(),
+						'closer_ends_at' => $this->tag_starts_at() - 1,
+					);
 				}
 			}
-
-			if(!$this->seek('internal_balancing_closer')){
-				throw new Exception('Failed to seek to internal_balancing_closer bookmark');
-			}
-
-			while($this->process_next_tag()) {
-				if(
-					// Current element popped off the stack
-					$this->depth() < $depth 
-					// Stack is the same size, but the current element was popped
-					|| ($this->depth() === $depth && end($this->open_elements) !== $token)
-				) {
-					if ($this->is_tag_closer()) {
-						return true;
-					}
-					break;
-				}
-			}
-			
-			// Should never ever happen
-			throw new Exception('Critical parser error: no matching closer found');
-		} finally {
-			$this->release_bookmark('internal_balancing_closer');
 		}
+		return array(
+			'closer_starts_at' => strlen($this->html),
+			'closer_ends_at' => strlen($this->html) - 1,
+		);
 	}
 
 	public function next_node() {
@@ -1542,9 +1493,9 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 
 }
 
-$p = new WP_HTML_Processor('<ul><li><li></ul id="1">');
-$p->next_node();
-$p->next_node();
-$p->next_node();
-$p->next_node();
-var_dump($p->get_updated_html());
+// $p = new WP_HTML_Processor('<ul><li><li></ul id="1">');
+// $p->next_node();
+// $p->next_node();
+// $p->next_node();
+// $p->next_node();
+// var_dump($p->get_updated_html());

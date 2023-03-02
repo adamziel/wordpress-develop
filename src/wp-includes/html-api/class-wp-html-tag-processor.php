@@ -1471,12 +1471,6 @@ class WP_HTML_Tag_Processor {
 			$this->output_buffer .= substr($this->html, $this->bytes_already_copied, $diff->start - $this->bytes_already_copied);
 			$this->output_buffer .= $diff->text;
 			$this->bytes_already_copied = $diff->end;
-
-			if ( $this->bytes_already_parsed > $diff->start ) {
-				if ( $this->bytes_already_parsed < $diff->end ) {
-					throw new Exception( 'Cannot replace part of the document at the bytes_already_parsed offset' );
-				}
-			}
 		}
 
 		if ( $diff->end < $this->bytes_already_parsed ) {
