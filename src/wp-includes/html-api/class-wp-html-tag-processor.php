@@ -1259,7 +1259,9 @@ class WP_HTML_Tag_Processor {
 	 */
 	private function after_tag() {
 		// Apply lexical updates
-		$this->get_updated_html();
+		$this->class_name_updates_to_attribute_updates();
+		$this->attribute_updates_to_lexical_updates();
+		$this->apply_lexical_updates();
 		$this->tag_name_starts_at = null;
 		$this->tag_name_length    = null;
 		$this->tag_ends_at        = null;
@@ -1455,10 +1457,26 @@ class WP_HTML_Tag_Processor {
 		 */
 		usort( $this->lexical_updates, array( self::class, 'sort_start_ascending' ) );
 
-		foreach ( $this->lexical_updates as $diff ) {
-			$this->output_buffer       .= substr( $this->html, $this->bytes_already_copied, $diff->start - $this->bytes_already_copied );
-			$this->output_buffer       .= $diff->text;
+		/**
+		 * If the update comes before the current tag name then we need to
+		 * trim the previous output buffer to the start of the update.
+		 * For now, this removes all previously uncommitted updates.
+		 */
+		if($this->lexical_updates[0]->start < $this->tag_name_starts_at) {
+			$this->output_buffer = substr($this->html, 0, $this->lexical_updates[0]->start);
+			$this->bytes_already_copied = strlen( $this->output_buffer );
+		}
+
+		foreach ($this->lexical_updates as $diff) {
+			$this->output_buffer .= substr($this->html, $this->bytes_already_copied, $diff->start - $this->bytes_already_copied);
+			$this->output_buffer .= $diff->text;
 			$this->bytes_already_copied = $diff->end;
+
+			if ( $this->bytes_already_parsed > $diff->start ) {
+				if ( $this->bytes_already_parsed < $diff->end ) {
+					throw new Exception( 'Cannot replace part of the document at the bytes_already_parsed offset' );
+				}
+			}
 		}
 
 		if ( $diff->end < $this->bytes_already_parsed ) {
@@ -2129,17 +2147,45 @@ class WP_HTML_Tag_Processor {
 			return $this->output_buffer . substr( $this->html, $this->bytes_already_copied );
 		}
 
-		try {
-			$this->release_bookmark('internal_get_updated_html');
-			if($this->set_bookmark('internal_get_updated_html')) {
-				$this->flush_updates();
-				$this->seek('internal_get_updated_html');
-			} else {
-				$this->flush_updates();
-			}
-		} finally {
-			$this->release_bookmark('internal_get_updated_html');
-		}
+		// Apply the updates, rewind to before the current tag, and reparse the attributes.
+		$content_up_to_opened_tag_name = $this->output_buffer . substr(
+			$this->html,
+			$this->bytes_already_copied,
+			$this->tag_name_starts_at + $this->tag_name_length - $this->bytes_already_copied
+		);
+
+		/*
+		 * 1. Apply the edits by flushing them to the output buffer and updating the copied byte count.
+		 *
+		 * Note: `apply_attributes_updates()` modifies `$this->output_buffer`.
+		 */
+		$this->class_name_updates_to_attribute_updates();
+		$this->attribute_updates_to_lexical_updates();
+		$this->apply_lexical_updates();
+
+		/*
+		 * 2. Replace the original HTML with the now-updated HTML so that it's possible to
+		 *    seek to a previous location and have a consistent view of the updated document.
+		 */
+		$this->html                 = $this->output_buffer . substr( $this->html, $this->bytes_already_copied );
+		$this->output_buffer        = $content_up_to_opened_tag_name;
+		$this->bytes_already_copied = strlen( $this->output_buffer );
+
+		/*
+		 * 3. Point this tag processor at the original tag opener and consume it
+		 *
+		 * At this point the internal cursor points to the end of the tag name.
+		 * Rewind before the tag name starts so that it's as if the cursor didn't
+		 * move; a call to `next_tag()` will reparse the recently-updated attributes
+		 * and additional calls to modify the attributes will apply at this same
+		 * location.
+		 *
+		 * <p>Previous HTML<em>More HTML</em></p>
+		 *                 ^  | back up by the length of the tag name plus the opening <
+		 *                 \<-/ back up by strlen("em") + 1 ==> 3
+		 */
+		$this->bytes_already_parsed = strlen( $content_up_to_opened_tag_name ) - $this->tag_name_length - ($this->is_closing_tag ? 2 : 1);
+		$this->next_tag();
 
 		return $this->html;
 	}

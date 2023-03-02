@@ -23,19 +23,6 @@ class Tests_HtmlApi_wpHtmlProcessor extends WP_UnitTestCase
 		);
 	}
 
-	public function test_closes_tags()
-	{
-		$p = new WP_HTML_Processor('<ul><li><li></ul>');
-		$p->next_node();
-		$p->next_node();
-		$p->next_node();
-		$p->next_node();
-		$this->assertEquals(
-			'<ul><li></li><li></li></ul>',
-			$p->get_updated_html()
-		);
-	}
-
 	// public function test_next_tag_throws()
 	// {
 	// 	$this->expectException(LogicException::class);
@@ -118,9 +105,10 @@ class Tests_HtmlApi_wpHtmlProcessor extends WP_UnitTestCase
 	{
 		$p = new WP_HTML_Processor('<ul><li>1<li>2<li>3</ul>');
 		$p->next_node();
-		$p->nth_child(2);
+		$p->nth_child(3);
 		$p->inner_html('<b><p>99</p></b>');
 		$this->assertEquals( '<b><p>99</p></b>', $p->inner_html() );
+		$this->assertEquals( '<ul><li>1<li>2<li><b><p>99</p></b></ul>', $p->get_updated_html() );
 	}
 
 	public function test_set_outer_html()

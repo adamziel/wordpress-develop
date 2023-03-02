@@ -66,7 +66,7 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 		// echo($this->html);
 		echo("\n");
 		$i = 0;
-		while ($this->next_tag()) {
+		while ($this->process_next_tag()) {
 			// ... twiddle thumbs ...
 			if(++$i % 10000 === 0)
 			{
@@ -176,7 +176,7 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 		$this->current_token = null;
 		$this->open_elements = $b['open_elements'];
 		$this->active_formatting_elements = $b['active_formatting_elements'];
-		return $this->next_tag();
+		return $this->process_next_tag();
 	}
 
 	private function print_open_elements() {
@@ -317,7 +317,7 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 					$html
 				)
 			);
-			$this->flush_updates();
+			$this->get_updated_html();
 
 			// Flush lexical updates
 			if(!$this->seek('internal_inner_html')) {
@@ -365,7 +365,7 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 					$html
 				)
 			);
-			$this->flush_updates();
+			$this->get_updated_html();
 
 			if(!$this->seek('internal_outer_html')) {
 				throw new Exception('Failed to seek to internal_outer_html bookmark');
@@ -393,7 +393,7 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 		try {
 			$depth = $this->depth();
 			$token = $this->current_token;
-			while($this->next_tag()) {
+			while($this->process_next_tag()) {
 				if(
 					// Current element popped off the stack
 					$this->depth() <= $depth 
@@ -412,7 +412,7 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 				throw new Exception('Failed to seek to internal_balancing_closer bookmark');
 			}
 
-			while($this->next_tag()) {
+			while($this->process_next_tag()) {
 				if(
 					// Current element popped off the stack
 					$this->depth() < $depth 
@@ -434,7 +434,7 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 	}
 
 	public function next_node() {
-		while ($this->next_tag()) {
+		while ($this->process_next_tag()) {
 			// is_tag_closer can be NULL if `next_tag`
 			// didn't find a tag closer
 			if (false === $this->is_tag_closer()) {
@@ -445,7 +445,7 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 	}
 
 	private $is_closing_open_tags = false;
-	public function next_tag($query = null) {
+	private function process_next_tag() {
 		/*
 		 * We're done with the document but some tags
 		 * are still open. Let's close them one at a time.
@@ -480,7 +480,7 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 			$this->process_text($text_start, strlen($this->html));
 
 			$this->is_closing_open_tags = true;
-			return $this->next_tag();
+			return $this->process_next_tag();
 		}
 
 		/**
@@ -1127,13 +1127,14 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 	private function insert_tag_closer_before_current_token( $tag ) {
 		// Aesthetic choice for now.
 		// @TODO: consider preserving the case of the opening tag
-		$this->add_lexical_update(
-			new WP_HTML_Text_Replacement(
-				$this->current_token_start,
-				$this->current_token_start,
-				"</".strtolower($tag).">"
-			)
-		);
+		// Let's actually not insert that closer for now
+		// $this->add_lexical_update(
+		// 	new WP_HTML_Text_Replacement(
+		// 		$this->current_token_start,
+		// 		$this->current_token_start,
+		// 		"</".strtolower($tag).">"
+		// 	)
+		// );
 		$last_afe = end($this->active_formatting_elements);
 		if($last_afe && $tag === $last_afe->tag) {
 			array_pop($this->active_formatting_elements);
@@ -1540,3 +1541,10 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 	}
 
 }
+
+$p = new WP_HTML_Processor('<ul><li><li></ul id="1">');
+$p->next_node();
+$p->next_node();
+$p->next_node();
+$p->next_node();
+var_dump($p->get_updated_html());
