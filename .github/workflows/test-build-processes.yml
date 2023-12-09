@@ -129,7 +129,8 @@ jobs:
               workflow_id: 'pull-request-comments.yml',
               ref: 'trunk',
               inputs: {
-                pr_number: '${{ github.event.number }}'
+                pr_number: '${{ github.event.number }}',
+                github_token: '${{ secrets.GITHUB_TOKEN }}'
               }
             });
 
