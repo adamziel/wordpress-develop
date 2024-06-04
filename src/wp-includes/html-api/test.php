@@ -16,7 +16,6 @@ foreach($tokens as $processor) {
     if ($processor->get_token_type() === '#cdata-section' && $processor->matches_breadcrumbs(array('content:encoded'))) {
         echo "\n " . dump_token($processor);
     }
-    // echo "\n " . dump_token($processor);
 }
 
 function chunk_text($text) {
