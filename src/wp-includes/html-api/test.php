@@ -125,7 +125,7 @@ function dump_token(WP_XML_Processor $p) {
             break;
         case '#text':
         case '#cdata-section':
-            $result .= '(' . preg_replace('~\s+~', ' ', $p->get_inner_text()) . ')';
+            $result .= '(' . preg_replace('~\s+~', ' ', $p->get_modifiable_text()) . ')';
             break;
     }
     return $result;
