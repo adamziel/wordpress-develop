@@ -57,8 +57,15 @@ class WP_XML_Processor extends WP_XML_Tag_Processor {
 	 *
 	 * @param string $xml XML to process.
 	 */
-	public function __construct( $xml ) {
+	public function __construct( $xml, $breadcrumbs = array(), $parser_context = self::IN_PROLOG_CONTEXT ) {
 		parent::__construct( $xml );
+		$this->stack_of_open_elements = $breadcrumbs;
+		$this->parser_context         = $parser_context;
+	}
+
+	public function get_parser_context()
+	{
+		return $this->parser_context;
 	}
 
 	/**
@@ -180,38 +187,41 @@ class WP_XML_Processor extends WP_XML_Tag_Processor {
 			return $this->get_modifiable_text();
 		}
 
-		try {
-			$text  = '';
-			$depth = 1;
-			while ( $depth > 0 && $this->base_class_next_token() ) {
-				switch ( $this->get_token_type() ) {
-					case '#tag':
-						if ( $this->is_empty_element() ) {
-							continue 2;
-						}
-						if ( $this->is_tag_closer() ) {
-							--$depth;
-						} else {
-							++$depth;
-						}
-						$text .= $this->get_modifiable_text();
-						break;
-					case '#text':
-					case '#cdata-section':
-						if ( $depth > 0 ) {
-							$text .= $this->get_modifiable_text();
-						}
-						break;
-					default:
+		$text  = '';
+		$depth = 1;
+		do {
+			switch ( $this->get_token_type() ) {
+				case '#tag':
+					if ( $this->is_empty_element() ) {
 						continue 2;
-				}
+					}
+					if ( $this->is_tag_closer() ) {
+						--$depth;
+					} else {
+						++$depth;
+					}
+					$text .= $this->get_modifiable_text();
+					break;
+				case '#text':
+				case '#cdata-section':
+					if ( $depth > 0 ) {
+						$text .= $this->get_modifiable_text();
+					}
+					break;
+				default:
+					continue 2;
 			}
+		} while ( $depth > 0 && $this->base_class_next_token() );
+		
+		$this->seek( 'inner_text' );
+		$this->release_bookmark( 'inner_text' );
 
-			return $text;
-		} finally {
-			$this->seek( 'inner_text' );
-			$this->release_bookmark( 'inner_text' );
+		if( $depth !== 0 ) {
+			$this->parser_state = WP_XML_Tag_Processor::STATE_INCOMPLETE_INPUT;
+			return false;
 		}
+
+		return $text;
 	}
 
 	/**
@@ -357,7 +367,7 @@ class WP_XML_Processor extends WP_XML_Tag_Processor {
 	 * @return false
 	 */
 	public function next_token() {
-		return $this->next_tag();
+		return $this->step();
 	}
 
 	/**
@@ -590,7 +600,11 @@ class WP_XML_Processor extends WP_XML_Tag_Processor {
 		// Start at the last crumb.
 		$crumb = end( $breadcrumbs );
 
-		if ( '*' !== $crumb && $this->get_tag() !== $crumb ) {
+		if (
+			'#tag' === $this->get_token_type() && 
+			'*' !== $crumb && 
+			$this->get_tag() !== $crumb
+		) {
 			return false;
 		}
 

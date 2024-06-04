@@ -1831,6 +1831,12 @@ class WP_XML_Tag_Processor {
 		return array_key_exists( $bookmark_name, $this->bookmarks );
 	}
 
+	public function get_unparsed_xml()
+	{
+		return substr($this->xml, $this->bytes_already_parsed);
+	}
+
+
 	/**
 	 * Move the internal cursor in the Tag Processor to a given bookmark's location.
 	 *
