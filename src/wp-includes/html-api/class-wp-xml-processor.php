@@ -63,8 +63,7 @@ class WP_XML_Processor extends WP_XML_Tag_Processor {
 		$this->parser_context         = $parser_context;
 	}
 
-	public function get_parser_context()
-	{
+	public function get_parser_context() {
 		return $this->parser_context;
 	}
 
@@ -156,75 +155,7 @@ class WP_XML_Processor extends WP_XML_Tag_Processor {
 		return false;
 	}
 
-	/**
-	 * Retrieves the text content of the current element,
-	 * including any nested elements.
-	 *
-	 * For example, given the following XML:
-	 *
-	 *     <root>
-	 *         <wp:post>
-	 *             The open source publishing <content> platform of choice for millions
-	 *             of websites <image /> worldwide—from creators </content>and small businesses
-	 *         </wp:post>
-	 *     </root>
-	 *
-	 * The inner text of the `wp:post` element would be:
-	 *
-	 *             The open source publishing platform of choice for millions
-	 *             of websites worldwide—from creators and small businesses
-	 *
-	 * Note that whitespace is preserved, including newlines and tabs.
-	 *
-	 * @return bool|string
-	 */
-	public function get_inner_text() {
-		if ( false === $this->set_bookmark( 'inner_text' ) ) {
-			return false;
-		}
-
-		if ( $this->is_pcdata_element() ) {
-			return $this->get_modifiable_text();
-		}
-
-		$text  = '';
-		$depth = 1;
-		do {
-			switch ( $this->get_token_type() ) {
-				case '#tag':
-					if ( $this->is_empty_element() ) {
-						continue 2;
-					}
-					if ( $this->is_tag_closer() ) {
-						--$depth;
-					} else {
-						++$depth;
-					}
-					$text .= $this->get_modifiable_text();
-					break;
-				case '#text':
-				case '#cdata-section':
-					if ( $depth > 0 ) {
-						$text .= $this->get_modifiable_text();
-					}
-					break;
-				default:
-					continue 2;
-			}
-		} while ( $depth > 0 && $this->base_class_next_token() );
-		
-		$this->seek( 'inner_text' );
-		$this->release_bookmark( 'inner_text' );
-
-		if( $depth !== 0 ) {
-			$this->parser_state = WP_XML_Tag_Processor::STATE_INCOMPLETE_INPUT;
-			return false;
-		}
-
-		return $text;
-	}
-
-	/**
+	/*
 	 * Sets a bookmark in the XML document.
 	 *
 	 * Bookmarks represent specific places or tokens in the HTML
@@ -601,8 +532,8 @@ class WP_XML_Processor extends WP_XML_Tag_Processor {
 		$crumb = end( $breadcrumbs );
 
 		if (
-			'#tag' === $this->get_token_type() && 
-			'*' !== $crumb && 
+			'#tag' === $this->get_token_type() &&
+			'*' !== $crumb &&
 			$this->get_tag() !== $crumb
 		) {
 			return false;
