@@ -13,7 +13,10 @@ require __DIR__ . "/class-wp-xml-processor.php";
 $wxr = file_get_contents(__DIR__ . '/test.wxr');
 $tokens = stream_next_xml_token(chunk_text($wxr));
 foreach($tokens as $processor) {
-    if ($processor->get_token_type() === '#cdata-section' && $processor->matches_breadcrumbs(array('content:encoded'))) {
+    if (
+        $processor->get_token_type() === '#cdata-section' && 
+        $processor->matches_breadcrumbs(array('content:encoded'))
+    ) {
         echo "\n " . dump_token($processor);
     }
 }
