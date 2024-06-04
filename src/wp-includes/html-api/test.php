@@ -116,3 +116,17 @@ foreach($tokens as $processor) {
     }
     // echo "\n " . dump_token($processor);
 }
+
+function dump_token(WP_XML_Processor $p) {
+    $result = $p->get_token_type() . ' ';
+    switch($p->get_token_type()) {
+        case '#tag':
+            $result .= '(' . $p->get_token_name() . ')' . ' IN ' . implode( ' > ', $p->get_breadcrumbs() );
+            break;
+        case '#text':
+        case '#cdata-section':
+            $result .= '(' . preg_replace('~\s+~', ' ', $p->get_inner_text()) . ')';
+            break;
+    }
+    return $result;
+}
