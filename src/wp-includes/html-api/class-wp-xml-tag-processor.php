@@ -2314,6 +2314,7 @@ class WP_XML_Tag_Processor {
 			 */
 
 			$this->last_error = self::ERROR_SYNTAX;
+			var_dump( $text );
 			_doing_it_wrong(
 				__METHOD__,
 				__( 'Invalid text content encountered.' ),

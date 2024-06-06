@@ -50,7 +50,7 @@ class WP_XML_Processor extends WP_XML_Tag_Processor {
 	 */
 	public $stack_of_open_elements = array();
 
-	public static function stream_next_xml_token( $input_stream, $output_stream, $buffer_size = 8092 ) {
+	public static function stream_tokens( $input_stream, $output_stream, $buffer_size = 8092 ) {
 		$streamed_data = fread( $input_stream, $buffer_size );
 
 		$breadcrumbs    = array();

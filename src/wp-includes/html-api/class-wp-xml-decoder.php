@@ -36,104 +36,64 @@ class WP_XML_Decoder {
 			if ( false === $next_character_reference_at || $next_character_reference_at >= $end ) {
 				break;
 			}
-			// $next_character_reference_at += 1;
 
-			/*
-			 * Capture all bytes that could form a character reference.
-			 *
-			 * This only supports:
-			 *
-			 * * The five mandated character references, that is &amp; &lt; &gt; &quot; &apos;
-			 * * Numeric character references, e.g. &#123; or &#x1A;
-			 *
-			 * XML grammar rule for parsing numeric references is:
-			 *
-			 *     [66] CharRef   ::= '&#' [0-9]+ ';' | '&#x' [0-9a-fA-F]+ ';' [WFC: Legal Character]
-			 *
-			 * See https://www.w3.org/TR/xml/#NT-CharRef
-			 */
-			$token_length = strspn(
-				$text,
-				'ampltgquos#xX0123456789bcdefABCDEF;',
-				$next_character_reference_at + 1,
+			if ( '#' === $text[ $next_character_reference_at + 1 ] ) {
+				$is_hex          = 'x' === $text[ $next_character_reference_at + 2 ] || 'X' === $text[ … ];
+				$zeros_start_at  = $next_character_reference_at + 3 + ( $is_hex ? 1 : 0 );
+				$zeros_length    = strspn( $text, '0', $zeros_start_at );
+				$digits_start_at = $zeros_start_at + $zeros_length;
+				$digit_chars     = $is_hex ? '0123456789abcdefABCDEF' : '0123456789';
+				$digits_length   = strspn( $text, $digit_chars, $digits_start_at );
+				$semicolon_at    = $digits_start_at + $digits_length;
+
+				// Must be followed by a semicolon.
+				if ( ';' !== $text[ $semicolon_at ] ) {
+					return false;
+				}
+
+				// Null bytes cannot be encoded in XML.
+				if ( 0 === $digits_length ) {
+					return false;
+				}
+
 				/*
-				 * Limit the length of the token to avoid scanning the entire document in case
-				 * a semicolon is missing.
-				 *
-				 * The maximum supported code point is 10FFFF, which is 9 characters long when
-				 * represented as either decimal or hexadecimal numeric character reference entity.
-				 * Technically, you can also add zeros to the front of the entity, which makes the
-				 * string longer, for example &#00000010FFFF;
-				 *
-				 * We limit this scan to 30 characters, which allows twenty zeros at the front.
+				 * Must encode a valid Unicode code point.
+				 * (Avoid parsing more than is necessary).
 				 */
-				30
+				$max_digits = $is_hex ? 6 : 7;
+				if ( $digits_length > $max_digits ) {
+					return false;
+				}
+
+				$base       = $is_hex ? 16 : 10;
+				$code_point = intval( substr( $text, $digits_start_at, $digits_length ), $base );
+				if ( if_allowable_code_point( $code_point ) ) {
+					$decoded .= WP_HTML_Decoder::code_point_to_utf8_bytes( $code_point );
+					$at       = $semicolon_at + 1;
+					continue;
+				}
+
+				return false;
+			}
+
+			// Must be a named character reference.
+			$name_starts_at = $next_character_reference_at + 1;
+
+			$standard_entities = array(
+				'amp;'  => '&',
+				'apos;' => "'",
+				'gt;'   => '>',
+				'lt;'   => '<',
+				'quot;' => '"',
 			);
 
-			if ( false === $token_length ) {
-				return null;
-			}
-
-			if ( ';' !== $text[ $next_character_reference_at + 1 + $token_length - 1 ] ) {
-				/*
-				 * In XML, all character references must end with a semicolon.
-				 */
-				return null;
-			}
-
-			$token = strtolower( substr( $text, $next_character_reference_at + 1, $token_length - 1 ) );
-
-			if ( 'amp' === $token ) {
-				$character_reference = '&';
-			} elseif ( 'lt' === $token ) {
-				$character_reference = '<';
-			} elseif ( 'gt' === $token ) {
-				$character_reference = '>';
-			} elseif ( 'quot' === $token ) {
-				$character_reference = '"';
-			} elseif ( 'apos' === $token ) {
-				$character_reference = "'";
-			} else {
-				$code_point = self::parse_code_point( $text, $next_character_reference_at );
-				if ( null === $code_point ) {
-					/*
-					 * > The following are forbidden, and constitute fatal errors:
-					 * > * the appearance of a reference to an unparsed entity, except in the EntityValue in an entity declaration.
-					 *
-					 * See https://www.w3.org/TR/xml/#forbidden
-					 */
-					return null;
-				}
-				$character_reference = WP_HTML_Decoder::code_point_to_utf8_bytes( $code_point );
-				if (
-					'�' === $character_reference &&
-					0xFFFD !== $code_point
-				) {
-					/*
-					 * Stop processing if we got an invalid character AND the reference does not
-					 * specifically refer code point FFFD (�).
-					 *
-					 * > It is a fatal error when an XML processor encounters an entity with an
-					 * > encoding that it is unable to process. It is a fatal error if an XML entity
-					 * > is determined (via default, encoding declaration, or higher-level protocol)
-					 * > to be in a certain encoding but contains byte sequences that are not legal
-					 * > in that encoding. Specifically, it is a fatal error if an entity encoded in
-					 * >  UTF-8 contains any ill-formed code unit sequences, as defined in section
-					 * > 3.9 of Unicode [Unicode]. Unless an encoding is determined by a higher-level
-					 * > protocol, it is also a fatal error if an XML entity contains no encoding
-					 * > declaration and its content is not legal UTF-8 or UTF-16.
-					 *
-					 * See https://www.w3.org/TR/xml/#charencoding
-					 */
-					return null;
+			foreach ( $standard_entities as $name => $replacement ) {
+				if ( substr_compare( $text, $name, $name_starts_at, strlen( $name ) ) ) {
+					$decoded .= $replacement;
+					$at       = $name_starts_at + strlen( $name );
+					break;
 				}
 			}
-
-			$at       = $next_character_reference_at;
-			$decoded .= substr( $text, $was_at, $at - $was_at );
-			$decoded .= $character_reference;
-			$at      += $token_length + 1;
-			$was_at   = $at;
 		}
 
 		if ( 0 === $was_at ) {
