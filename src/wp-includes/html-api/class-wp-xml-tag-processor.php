@@ -602,6 +602,8 @@ class WP_XML_Tag_Processor {
 	 */
 	protected $seek_count = 0;
 
+	public $had_previous_chunks = false;
+
 	/**
 	 * Constructor.
 	 *
@@ -1167,11 +1169,13 @@ class WP_XML_Tag_Processor {
 			$at = strpos( $xml, '<', $at );
 
 			/*
-			 * This does not imply an incomplete parse; it indicates that there
-			 * can be nothing left in the document other than a #text node.
+			 * It's probably an incomplete parse – there can be no text
+			 * nodes outside of elements.
 			 */
 			if ( false === $at ) {
-				$at = strlen( $xml );
+				// @TODO: Ignore whitespace at the end of the document.
+				$this->parser_state = self::STATE_INCOMPLETE_INPUT;
+				return false;
 			}
 
 			if ( $at > $was_at ) {
@@ -1335,6 +1339,7 @@ class WP_XML_Tag_Processor {
 			 */
 			if (
 				0 === $at &&
+				! $this->had_previous_chunks &&
 				! $this->is_closing_tag &&
 				'?' === $xml[ $at + 1 ] &&
 				'x' === $xml[ $at + 2 ] &&
@@ -1460,8 +1465,13 @@ class WP_XML_Tag_Processor {
 				! $this->is_closing_tag &&
 				'?' === $xml[ $at + 1 ]
 			) {
+				if ( $at + 4 >= $doc_length ) {
+					$this->parser_state = self::STATE_INCOMPLETE_INPUT;
+
+					return false;
+				}
+
 				if ( ! (
-					$at + 4 <= $doc_length &&
 					( 'x' === $xml[ $at + 2 ] || 'X' === $xml[ $at + 2 ] ) &&
 					( 'm' === $xml[ $at + 3 ] || 'M' === $xml[ $at + 3 ] ) &&
 					( 'l' === $xml[ $at + 4 ] || 'L' === $xml[ $at + 4 ] )
@@ -1525,7 +1535,6 @@ class WP_XML_Tag_Processor {
 		$this->bytes_already_parsed += strspn( $this->xml, " \t\f\r\n/", $this->bytes_already_parsed );
 		if ( $this->bytes_already_parsed >= strlen( $this->xml ) ) {
 			$this->parser_state = self::STATE_INCOMPLETE_INPUT;
-
 			return false;
 		}
 
@@ -1553,7 +1562,6 @@ class WP_XML_Tag_Processor {
 		$this->skip_whitespace();
 		if ( $this->bytes_already_parsed >= strlen( $this->xml ) ) {
 			$this->parser_state = self::STATE_INCOMPLETE_INPUT;
-
 			return false;
 		}
 		switch ( $this->xml[ $this->bytes_already_parsed ] ) {
@@ -1831,7 +1839,15 @@ class WP_XML_Tag_Processor {
 		return array_key_exists( $bookmark_name, $this->bookmarks );
 	}
 
-	public function get_unparsed_xml() {
+	public function get_processed_xml() {
+		// Flush updates
+		$this->get_updated_xml();
+		return substr( $this->xml, 0, $this->bytes_already_parsed );
+	}
+
+	public function get_unprocessed_xml() {
+		// Flush updates
+		$this->get_updated_xml();
 		return substr( $this->xml, $this->bytes_already_parsed );
 	}
 
@@ -2284,6 +2300,36 @@ class WP_XML_Tag_Processor {
 			return false;
 		}
 		return $decoded;
+	}
+
+	public function set_modifiable_text( $new_value ) {
+		switch ( $this->parser_state ) {
+			case self::STATE_TEXT_NODE:
+			case self::STATE_COMMENT:
+				$this->lexical_updates[] = new WP_HTML_Text_Replacement(
+					$this->text_starts_at,
+					$this->text_length,
+					// @TODO This is naive, let's rethink this.
+					htmlspecialchars( $new_value, ENT_XML1, 'UTF-8' )
+				);
+				return true;
+
+			case self::STATE_CDATA_NODE:
+				$this->lexical_updates[] = new WP_HTML_Text_Replacement(
+					$this->text_starts_at,
+					$this->text_length,
+					// @TODO This is naive, let's rethink this.
+					str_replace( ']]>', ']]&gt;', $new_value )
+				);
+				return true;
+			default:
+				_doing_it_wrong(
+					__METHOD__,
+					__( 'Cannot set text content on a non-text node.' ),
+					'WP_VERSION'
+				);
+				return false;
+		}
 	}
 
 	/**

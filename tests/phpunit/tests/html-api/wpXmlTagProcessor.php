@@ -1185,6 +1185,30 @@ class Tests_XmlApi_WpXmlTagProcessor extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Ensures that the processor doesn't attempt to match an incomplete text node.
+	 *
+	 * @ticket 61365
+	 *
+	 * @covers WP_XML_Tag_Processor::next_tag
+	 * @covers WP_XML_Tag_Processor::paused_at_incomplete_token
+	 */
+	public function test_next_tag_returns_false_for_incomplete_text_nodes() {
+		$processor = new WP_XML_Tag_Processor( '<data>There is no closer!' );
+
+		$this->assertTrue(
+			$processor->next_tag(),
+			'Should have found a <data> tag but, did not.'
+		);
+		$this->assertFalse( $processor->next_tag() );
+
+		$this->assertTrue(
+			$processor->paused_at_incomplete_token(),
+			"Should have indicated that the parser found an incomplete token but didn't."
+		);
+	}
+
+
+	/**
 	 * The string " -- " (double-hyphen) must not occur within comments.
 	 *
 	 * @expectedIncorrectUsage WP_XML_Tag_Processor::parse_next_tag

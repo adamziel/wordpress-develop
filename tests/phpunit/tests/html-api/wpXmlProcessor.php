@@ -56,6 +56,32 @@ class Tests_XmlApi_WpXmlProcessor extends WP_UnitTestCase {
 	 *
 	 * @return void
 	 */
+	public function test_streaming() {
+		$input_stream = fopen( 'php://memory', 'rw+' );
+		fwrite( $input_stream, '<?xml version="1.0" ?><root><wp:content><![CDATA[<p>old test</p>]]></wp:content></root>' );
+		rewind( $input_stream );
+		$output_stream = fopen( 'php://memory', 'rw+' );
+		$stream        = WP_XML_Processor::stream_next_xml_token(
+			$input_stream,
+			$output_stream
+		);
+		foreach ( $stream as $processor ) {
+			if ( $processor->get_token_type() === '#cdata-section' ) {
+				$processor->set_modifiable_text( 'new text' );
+			}
+		}
+		rewind( $output_stream );
+		$this->assertEquals(
+			'<?xml version="1.0" ?><root><wp:content><![CDATA[new text]]></wp:content></root>',
+			stream_get_contents( $output_stream )
+		);
+	}
+
+	/**
+	 * @ticket 61365
+	 *
+	 * @return void
+	 */
 	public function test_matches_breadcrumbs() {
 		// Initialize the WP_XML_Processor with the given XML string
 		$processor = new WP_XML_Processor( '<root><wp:post><content><image /></content></wp:post></root>' );

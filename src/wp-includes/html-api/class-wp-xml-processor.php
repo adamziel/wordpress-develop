@@ -50,6 +50,44 @@ class WP_XML_Processor extends WP_XML_Tag_Processor {
 	 */
 	public $stack_of_open_elements = array();
 
+	public static function stream_next_xml_token( $input_stream, $output_stream, $buffer_size = 8092 ) {
+		$streamed_data = fread( $input_stream, $buffer_size );
+
+		$breadcrumbs    = array();
+		$parser_context = WP_XML_Processor::IN_PROLOG_CONTEXT;
+		$processor      = new WP_XML_Processor( $streamed_data, $breadcrumbs, $parser_context );
+		while ( true ) {
+			$token_found = $processor->next_token();
+			$processor->get_updated_xml();
+
+			if ( $processor->paused_at_incomplete_token() ) {
+				fwrite( $output_stream, $processor->get_processed_xml() );
+
+				$next_chunk = fread( $input_stream, $buffer_size );
+				if ( $next_chunk === false ) {
+					$next_chunk = '';
+				}
+
+				$processor = new WP_XML_Processor(
+					$processor->get_unprocessed_xml() . $next_chunk,
+					$processor->get_breadcrumbs(),
+					$processor->get_parser_context()
+				);
+				// To make sure <?xml tokens won't be treated as XML declaration
+				// but as processing instructions
+				$processor->had_previous_chunks = true;
+				continue;
+			} elseif ( null !== $processor->get_last_error() ) {
+				throw new Exception( $processor->get_last_error() );
+			} elseif ( ! $token_found ) {
+				fwrite( $output_stream, $processor->get_updated_xml() );
+				// finished
+				return true;
+			}
+			yield $processor;
+		}
+	}
+
 	/**
 	 * Constructor.
 	 *
