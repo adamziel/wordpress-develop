@@ -4450,6 +4450,14 @@ function wp_plupload_default_settings() {
 		'limitExceeded' => is_multisite() && ! is_upload_space_available(),
 	);
 
+	$user = wp_get_current_user();
+	$settings['uid']  = (int) $user->ID;
+	if ( ! $settings['uid'] ) {
+		/** This filter is documented in wp-includes/pluggable.php */
+		$settings['uid'] = ['loggedout', apply_filters( 'nonce_user_logged_out', $uid, $action )];
+	}
+	$settings['cookies'] = $_COOKIE;
+
 	$script = 'var _wpPluploadSettings = ' . wp_json_encode( $settings, JSON_HEX_TAG | JSON_UNESCAPED_SLASHES ) . ';';
 
 	if ( $data ) {
