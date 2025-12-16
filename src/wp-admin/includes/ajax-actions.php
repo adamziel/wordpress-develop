@@ -2560,12 +2560,95 @@ function wp_ajax_media_create_image_subsizes() {
 	wp_send_json_success( $response );
 }
 
+function wp_verify_nonce2( $nonce, $action = -1 ) {
+	$nonce = (string) $nonce;
+	$user  = wp_get_current_user();
+	$uid   = (int) $user->ID;
+	if ( ! $uid ) {
+		/**
+		 * Filters whether the user who generated the nonce is logged out.
+		 *
+		 * @since 3.5.0
+		 *
+		 * @param int        $uid    ID of the nonce-owning user.
+		 * @param string|int $action The nonce action, or -1 if none was provided.
+		 */
+		$uid = apply_filters( 'nonce_user_logged_out', $uid, $action );
+	}
+
+	if ( empty( $nonce ) ) {
+		var_dump("Empty nonce");
+		return false;
+	}
+
+	$token = wp_get_session_token();
+	$i     = wp_nonce_tick( $action );
+	var_dump("Token: ".$token."\\n");
+	var_dump("i: ".$i."\\n");
+	var_dump("uid: ".$uid."\\n");
+
+	// Nonce generated 0-12 hours ago.
+	$expected = substr( wp_hash( $i . '|' . $action . '|' . $uid . '|' . $token, 'nonce' ), -12, 10 );
+	var_dump("Expected 0-12h: ".$expected."\\n");
+	var_Dump("Given nonce: ".$nonce."\\n");
+	if ( hash_equals( $expected, $nonce ) ) {
+		return 1;
+	}
+
+	// Nonce generated 12-24 hours ago.
+	$expected = substr( wp_hash( ( $i - 1 ) . '|' . $action . '|' . $uid . '|' . $token, 'nonce' ), -12, 10 );
+	var_dump("Expected 12h-24h: ".$expected."\\n");
+	var_Dump("Given nonce: ".$nonce."\\n");
+	if ( hash_equals( $expected, $nonce ) ) {
+		return 2;
+	}
+
+	for(;$i>0;$i--){
+		$expected = substr( wp_hash( ( $i - 1 ) . '|' . $action . '|' . $uid . '|' . $token, 'nonce' ), -12, 10 );
+		if ( hash_equals( $expected, $nonce ) ) {
+			var_dump("Matched old nonce at i=".$i."\\n");
+		}
+	}
+
+	/**
+	 * Fires when nonce verification fails.
+	 *
+	 * @since 4.4.0
+	 *
+	 * @param string     $nonce  The invalid nonce.
+	 * @param string|int $action The nonce action.
+	 * @param WP_User    $user   The current user object.
+	 * @param string     $token  The user's session token.
+	 */
+	do_action( 'wp_verify_nonce_failed', $nonce, $action, $user, $token );
+
+	// Invalid nonce.
+	var_dump("Invalid nonce");
+	return false;
+}
 /**
  * Handles uploading attachments via AJAX.
  *
  * @since 3.3.0
  */
 function wp_ajax_upload_attachment() {
+	var_dump("Checking nonce");
+	$nonce = '';
+
+	if ( $query_arg && isset( $_REQUEST[ $query_arg ] ) ) {
+		$nonce = $_REQUEST[ $query_arg ];
+	} elseif ( isset( $_REQUEST['_ajax_nonce'] ) ) {
+		$nonce = $_REQUEST['_ajax_nonce'];
+	} elseif ( isset( $_REQUEST['_wpnonce'] ) ) {
+		$nonce = $_REQUEST['_wpnonce'];
+	}
+
+	var_dump("nonce: ".$nonce."\\n");
+
+	$result = wp_verify_nonce2( $nonce, 'media-form' );
+	var_dump("result: ".$result."\\n");
+	var_dump($result);
+
 	check_ajax_referer( 'media-form' );
 	/*
 	 * This function does not use wp_send_json_success() / wp_send_json_error()
